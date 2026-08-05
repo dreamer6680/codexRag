@@ -25,6 +25,33 @@ function unavailableResult(): QueryResult {
   return { ...UNAVAILABLE_RESULT, citations: [] };
 }
 
+function isCitation(value: unknown): value is Citation {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const {
+    document_id,
+    document_name,
+    version,
+    page,
+    section,
+    excerpt,
+    confidence,
+  } = value as Record<string, unknown>;
+
+  return (
+    typeof document_id === "string" &&
+    typeof document_name === "string" &&
+    typeof version === "number" &&
+    Number.isInteger(version) &&
+    (page === undefined || (typeof page === "number" && Number.isInteger(page))) &&
+    (section === undefined || typeof section === "string") &&
+    typeof excerpt === "string" &&
+    typeof confidence === "number"
+  );
+}
+
 function isQueryResult(value: unknown): value is QueryResult {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -35,7 +62,8 @@ function isQueryResult(value: unknown): value is QueryResult {
   return (
     (status === "answered" || status === "refused" || status === "unavailable") &&
     typeof answer === "string" &&
-    Array.isArray(citations)
+    Array.isArray(citations) &&
+    citations.every(isCitation)
   );
 }
 
