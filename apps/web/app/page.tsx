@@ -1,13 +1,12 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import React, { FormEvent, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { readQueryResult, type Citation, type QueryResult } from "@/lib/query-result";
 
-type Citation = { document_id: string; document_name: string; version: number; page?: number; section?: string; excerpt: string; confidence: number };
-type Result = { status: "answered" | "refused" | "unavailable"; answer: string; citations: Citation[]; reason?: string };
 type View = "chat" | "documents" | "parsing" | "detail";
 type DocumentRow = { type: string; name: string; version: string; time: string; status: string; chunks: number };
 type PdfInspection = { pdf_type: "TextBased" | "Scanned" | "ImageBased" | "Mixed"; page_count: number; confidence: number; pages_needing_ocr: number[] };
@@ -32,8 +31,9 @@ function Status({ value }: { value: string }) {
 export default function Home() {
   const [view, setView] = useState<View>("chat");
   const [question, setQuestion] = useState("");
+  const [submittedQuestion, setSubmittedQuestion] = useState("新版本的需求评审，需要哪些关键角色参加？");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Result | null>({ status: "answered", answer: "按照当前的《产品需求管理规范》，需求评审至少应包含产品负责人、研发负责人、测试负责人和业务代表。若需求涉及数据采集或个人信息，还需要邀请安全与法务同事共同确认。\n\n评审开始前，产品负责人需要提交 PRD、交互稿和成本评估；会议结论应在两个工作日内同步至需求卡片。", citations: demoCitations });
+  const [result, setResult] = useState<QueryResult | null>({ status: "answered", answer: "按照当前的《产品需求管理规范》，需求评审至少应包含产品负责人、研发负责人、测试负责人和业务代表。若需求涉及数据采集或个人信息，还需要邀请安全与法务同事共同确认。\n\n评审开始前，产品负责人需要提交 PRD、交互稿和成本评估；会议结论应在两个工作日内同步至需求卡片。", citations: demoCitations });
   const [activeChunk, setActiveChunk] = useState(0);
   const [documents, setDocuments] = useState<DocumentRow[]>(initialDocuments);
   const [uploading, setUploading] = useState(false);
@@ -63,29 +63,34 @@ export default function Home() {
   }
 
   async function ask(event: FormEvent) {
-    event.preventDefault(); if (!question.trim()) return;
+    event.preventDefault();
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion) return;
     setLoading(true); setResult(null);
-    try { const response = await fetch("/api/query", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question }) }); setResult(await response.json()); }
+    setSubmittedQuestion(trimmedQuestion);
+    try { const response = await fetch("/api/query", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: trimmedQuestion }) }); setResult(await readQueryResult(response)); }
     catch { setResult({ status: "unavailable", answer: "无法连接本地 RAG 服务。请检查 Docker 服务状态。", citations: [] }); }
     finally { setLoading(false); }
   }
 
   const nav = [{ id: "chat" as View, label: "知识问答", mark: "01" }, { id: "documents" as View, label: "我的文档", mark: "02" }, { id: "parsing" as View, label: "解析任务", mark: "03" }];
+  const activeView = view === "detail" ? "documents" : view;
   return <div className="min-h-screen bg-zinc-50 text-zinc-950">
     <aside className="fixed inset-y-0 hidden w-60 border-r bg-white p-4 lg:block">
       <button onClick={() => setView("chat")} className="flex items-center gap-2 px-2 text-lg font-semibold"><span className="grid h-7 w-7 place-items-center rounded-md bg-zinc-900 text-sm text-white">知</span>知见</button>
       <div className="mt-8 rounded-lg border bg-zinc-50 p-3"><p className="font-medium">产品研发知识库</p><p className="mt-1 text-xs text-muted-foreground">上海 · 26 位成员</p></div>
-      <nav className="mt-6 grid gap-1">{nav.map(item => <button key={item.id} onClick={() => setView(item.id)} className={`flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${view === item.id || (view === "detail" && item.id === "parsing") ? "bg-zinc-100 font-medium" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950"}`}><span className="font-mono text-[11px] text-zinc-400">{item.mark}</span>{item.label}</button>)}</nav>
+      <nav className="mt-6 grid gap-1">{nav.map(item => <button key={item.id} onClick={() => setView(item.id)} className={`flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${activeView === item.id ? "bg-zinc-100 font-medium" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950"}`}><span className="font-mono text-[11px] text-zinc-400">{item.mark}</span>{item.label}</button>)}</nav>
       <div className="absolute bottom-5 flex items-center gap-2 px-2"><span className="grid h-8 w-8 place-items-center rounded-full bg-amber-100 text-xs font-semibold text-amber-900">林</span><div className="text-xs"><p className="font-medium">林然</p><p className="text-muted-foreground">管理员</p></div></div>
     </aside>
     <main className="lg:pl-60"><header className="flex h-16 items-center justify-between border-b bg-white px-5 sm:px-8"><span className="font-mono text-[11px] tracking-wide text-muted-foreground">WORKSPACE / {view === "detail" ? "PARSING DETAIL" : view.toUpperCase()}</span><Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">● 检索服务正常</Badge></header>
-      <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">{view === "chat" && <Chat question={question} setQuestion={setQuestion} ask={ask} loading={loading} result={result} documents={documents} uploading={uploading} onUpload={uploadFile} />}{view === "documents" && <Documents documents={documents} uploadMessage={uploadMessage} inspection={lastInspection} uploading={uploading} onUpload={uploadFile} onDetail={() => setView("detail")} />}{view === "parsing" && <Parsing onDetail={() => setView("detail")} />}{view === "detail" && <Detail activeChunk={activeChunk} setActiveChunk={setActiveChunk} back={() => setView("documents")} />}</div>
+      <nav aria-label="移动导航" className="grid grid-cols-3 gap-1 border-b bg-white px-5 py-2 lg:hidden">{nav.map(item => <button key={item.id} type="button" onClick={() => setView(item.id)} aria-current={activeView === item.id ? "page" : undefined} className={`rounded-md px-2 py-2 text-sm transition-colors ${activeView === item.id ? "bg-zinc-100 font-medium text-zinc-950" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950"}`}>{item.label}</button>)}</nav>
+      <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">{view === "chat" && <Chat question={question} submittedQuestion={submittedQuestion} setQuestion={setQuestion} ask={ask} loading={loading} result={result} documents={documents} uploading={uploading} onUpload={uploadFile} />}{view === "documents" && <Documents documents={documents} uploadMessage={uploadMessage} inspection={lastInspection} uploading={uploading} onUpload={uploadFile} onDetail={() => setView("detail")} />}{view === "parsing" && <Parsing onDetail={() => setView("detail")} />}{view === "detail" && <Detail activeChunk={activeChunk} setActiveChunk={setActiveChunk} back={() => setView("documents")} />}</div>
     </main>
   </div>;
 }
 
-function Chat({ question, setQuestion, ask, loading, result, documents, uploading, onUpload }: { question: string; setQuestion: (value: string) => void; ask: (event: FormEvent) => void; loading: boolean; result: Result | null; documents: DocumentRow[]; uploading: boolean; onUpload: (file: File) => Promise<void> }) {
-  return <><div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="font-mono text-xs text-blue-600">EVIDENCE-FIRST KNOWLEDGE WORK</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">把团队经验，变成可核验的答案。</h1></div><p className="max-w-xs text-sm leading-6 text-muted-foreground">答案只基于已授权资料生成；每一条结论都能回到原文。</p></div><div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]"><Card className="overflow-hidden"><div className="flex items-center justify-between border-b px-5 py-4 text-sm"><span className="text-muted-foreground">正在检索 <b className="text-foreground">全部已就绪资料</b> · {documents.filter(item => item.status === "已就绪").length} 个文档</span><Button variant="outline" className="h-8">筛选资料</Button></div><div className="min-h-[440px] space-y-7 p-5"><div className="ml-auto max-w-lg rounded-lg bg-zinc-100 p-4 text-sm"><p className="mb-1 text-xs text-muted-foreground">你</p>新版本的需求评审，需要哪些关键角色参加？</div>{loading && <div className="text-sm text-muted-foreground">正在检索、重排并核验证据…</div>}{result && <div className="max-w-2xl"><div className="mb-3 flex items-center gap-2 text-sm font-semibold"><span className="grid h-7 w-7 place-items-center rounded-md bg-zinc-900 text-white">知</span>知见助手</div><p className="whitespace-pre-line text-sm leading-7">{result.answer}</p>{result.citations.length > 0 && <div className="mt-5 border-l-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">✓ 检索到 {result.citations.length} 份直接依据，<b>回答置信度高</b></div>}</div>}</div><form onSubmit={ask} className="flex gap-2 border-t p-4"><Input value={question} onChange={e => setQuestion(e.target.value)} placeholder="在知识库中提问，例如：本季度的发布流程是什么？" /><Button disabled={loading}>{loading ? "检索中" : "发送 ↑"}</Button></form></Card><Sources citations={result?.citations || []} documents={documents} uploading={uploading} onUpload={onUpload} /></div></>;
+function Chat({ question, submittedQuestion, setQuestion, ask, loading, result, documents, uploading, onUpload }: { question: string; submittedQuestion: string; setQuestion: (value: string) => void; ask: (event: FormEvent) => void; loading: boolean; result: QueryResult | null; documents: DocumentRow[]; uploading: boolean; onUpload: (file: File) => Promise<void> }) {
+  return <><div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="font-mono text-xs text-blue-600">EVIDENCE-FIRST KNOWLEDGE WORK</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">把团队经验，变成可核验的答案。</h1></div><p className="max-w-xs text-sm leading-6 text-muted-foreground">答案只基于已授权资料生成；每一条结论都能回到原文。</p></div><div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]"><Card className="overflow-hidden"><div className="flex items-center justify-between border-b px-5 py-4 text-sm"><span className="text-muted-foreground">正在检索 <b className="text-foreground">全部已就绪资料</b> · {documents.filter(item => item.status === "已就绪").length} 个文档</span><Button variant="outline" className="h-8">筛选资料</Button></div><div className="min-h-[440px] space-y-7 p-5"><div className="ml-auto max-w-lg rounded-lg bg-zinc-100 p-4 text-sm"><p className="mb-1 text-xs text-muted-foreground">你</p>{submittedQuestion}</div>{loading && <div className="text-sm text-muted-foreground">正在检索、重排并核验证据…</div>}{result && <div className="max-w-2xl"><div className="mb-3 flex items-center gap-2 text-sm font-semibold"><span className="grid h-7 w-7 place-items-center rounded-md bg-zinc-900 text-white">知</span>知见助手</div><p className="whitespace-pre-line text-sm leading-7">{result.answer}</p>{result.citations.length > 0 && <div className="mt-5 border-l-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">✓ 检索到 {result.citations.length} 份直接依据，<b>回答置信度高</b></div>}</div>}</div><form onSubmit={ask} className="flex gap-2 border-t p-4"><Input value={question} onChange={e => setQuestion(e.target.value)} maxLength={4000} placeholder="在知识库中提问，例如：本季度的发布流程是什么？" /><Button disabled={loading}>{loading ? "检索中" : "发送 ↑"}</Button></form></Card><Sources citations={result?.citations || []} documents={documents} uploading={uploading} onUpload={onUpload} /></div></>;
 }
 
 function UploadButton({ uploading, onUpload, className = "" }: { uploading: boolean; onUpload: (file: File) => Promise<void>; className?: string }) { const input = useRef<HTMLInputElement>(null); return <><Button type="button" variant="outline" className={className} disabled={uploading} onClick={() => input.current?.click()}>{uploading ? "正在解析…" : "＋ 上传资料"}</Button><input ref={input} className="hidden" type="file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" onChange={event => { const file = event.target.files?.[0]; if (file) void onUpload(file); event.target.value = ""; }} /></>; }
