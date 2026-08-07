@@ -1,0 +1,10 @@
+spring:
+  application.name: local-rag-core
+  jpa.hibernate.ddl-auto: update
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/local_rag}
+    username: ${SPRING_DATASOURCE_USERNAME:localrag}
+    password: ${SPRING_DATASOURCE_PASSWORD:localrag-change-me}
+server:
+  error.include-message: always
+

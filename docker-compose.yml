@@ -1,0 +1,106 @@
+name: local-rag
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: local_rag
+      MYSQL_USER: localrag
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-localrag-change-me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-localrag-root-change-me}
+    ports: ["127.0.0.1:3306:3306"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-localrag-root-change-me}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rag_state
+      POSTGRES_USER: localrag
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localrag-change-me}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U localrag -d rag_state"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    ports: ["127.0.0.1:6333:6333"]
+    volumes: ["qdrant-data:/qdrant/storage"]
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-localrag}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-localrag-change-me}
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: ["minio-data:/data"]
+
+  mineru:
+    build: ./services/mineru
+    environment:
+      MINERU_DEVICE: ${MINERU_DEVICE:-auto}
+      MINERU_MODEL_SOURCE: ${MINERU_MODEL_SOURCE:-modelscope}
+    ports: ["127.0.0.1:8002:8002"]
+    volumes: ["mineru-models:/root/.cache"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  rag-api:
+    build: ./services/python-rag
+    environment:
+      # Ollama runs directly on the host, not in Docker.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      CHAT_MODEL: ${CHAT_MODEL:-qwen3:14b}
+      FALLBACK_CHAT_MODEL: ${FALLBACK_CHAT_MODEL:-qwen3:8b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+      RERANK_MODEL: ${RERANK_MODEL:-qllama/bge-reranker-v2-m3}
+      QDRANT_URL: http://qdrant:6333
+      MINERU_URL: http://mineru:8002
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-localrag}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-localrag-change-me}
+      MINIO_BUCKET: rag-documents
+      MINIO_SECURE: "false"
+      POSTGRES_DSN: postgresql://localrag:${POSTGRES_PASSWORD:-localrag-change-me}@postgres:5432/rag_state
+      JAVA_CORE_URL: http://core-api:8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: [qdrant, postgres, mineru]
+    ports: ["127.0.0.1:8001:8001"]
+
+  core-api:
+    build: ./services/java-core
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/local_rag?createDatabaseIfNotExist=true
+      SPRING_DATASOURCE_USERNAME: localrag
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-localrag-change-me}
+      APP_JWT_SECRET: ${JWT_SECRET:-replace-with-at-least-32-random-characters}
+    depends_on: [mysql]
+    ports: ["127.0.0.1:8080:8080"]
+
+  web:
+    build: ./apps/web
+    environment:
+      CORE_API_URL: http://core-api:8080
+      RAG_API_URL: http://rag-api:8001
+    depends_on: [core-api, rag-api]
+    ports: ["127.0.0.1:3000:3000"]
+
+volumes:
+  mysql-data:
+  postgres-data:
+  qdrant-data:
+  minio-data:
+  mineru-models:
