@@ -16,6 +16,8 @@ class FakeCatalog:
     def __init__(self):
         self.records = {}
         self.reserved = set()
+        self.latest_attempted_versions = {}
+        self.failed = set()
 
     def upsert(self, record):
         self.records[record.document_id] = record
@@ -25,8 +27,12 @@ class FakeCatalog:
 
     def reserve_index_version(self, document_id, document_name, version):
         existing = self.records.get(document_id)
-        if existing and existing.version >= version:
+        latest = self.latest_attempted_versions.get(
+            document_id, existing.version if existing else 0
+        )
+        if version <= latest:
             return False
+        self.latest_attempted_versions[document_id] = version
         self.reserved.add((document_id, version))
         return True
 
@@ -37,7 +43,7 @@ class FakeCatalog:
         return True
 
     def mark_index_failed(self, document_id, version):
-        pass
+        self.failed.add((document_id, version))
 
 
 def test_index_registers_a_queryable_document_and_replayable_text(monkeypatch):
@@ -153,3 +159,38 @@ def test_index_uses_atomic_reservation_before_qdrant(monkeypatch):
 
     assert response.status_code == 409
     assert storage.objects == {}
+
+
+def test_failed_index_keeps_previous_ready_version_and_cannot_retry_same_version(monkeypatch):
+    storage = FakeStorage()
+    catalog = FakeCatalog()
+
+    class ExistingRecord:
+        document_id = "doc-indexed"
+        version = 1
+        status = "ready"
+
+    previous = ExistingRecord()
+    catalog.records["doc-indexed"] = previous
+
+    async def failed_index(self, request):
+        raise RuntimeError("qdrant unavailable")
+
+    monkeypatch.setattr("app.main.object_storage", storage)
+    monkeypatch.setattr("app.main.document_catalog", catalog)
+    monkeypatch.setattr(VectorStore, "index", failed_index)
+
+    payload = {
+        "document_id": "doc-indexed",
+        "document_name": "indexed.md",
+        "version": 2,
+        "chunks": [{"text": "replacement"}],
+    }
+    client = TestClient(app, raise_server_exceptions=False)
+    first = client.post("/rag/index", json=payload)
+    retry = client.post("/rag/index", json=payload)
+
+    assert first.status_code == 500
+    assert retry.status_code == 409
+    assert catalog.records["doc-indexed"] is previous
+    assert ("doc-indexed", 2) in catalog.failed
