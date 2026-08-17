@@ -34,7 +34,7 @@ export function ChatPanel({ messages, input, sending, documents, selectedDocumen
       </div>
       <form onSubmit={onSend} className="flex gap-2 border-t bg-white p-4">
         <Input value={input} onChange={event => onInput(event.target.value)} disabled={sending} placeholder="继续提问，或引用上一条回答中的内容…" />
-        <Button disabled={sending || !input.trim()}>{sending ? "发送中" : "发送"}</Button>
+        <Button className="w-[100px]" disabled={sending || !input.trim()}>{sending ? "发送中" : "发送"}</Button>
       </form>
     </Card>
   </div>;
