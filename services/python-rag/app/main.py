@@ -63,10 +63,22 @@ async def health():
 
 @app.post("/rag/query", response_model=QueryResponse)
 async def query(payload: QueryRequest, user: AuthenticatedUser = Depends(require_user)):
-    document_catalog.upsert_user(user)
-    for document_id in payload.document_ids:
-        if not document_catalog.get(document_id, user.id):
-            raise HTTPException(404, "Document not found")
+    try:
+        document_catalog.upsert_user(user)
+        document_catalog.ready_document_scopes(user.id, payload.document_ids)
+        missing_document = any(
+            not document_catalog.get(document_id, user.id)
+            for document_id in payload.document_ids
+        )
+    except Exception:
+        return QueryResponse(
+            status="unavailable",
+            answer="文档目录当前不可用。",
+            confidence="none",
+            reason="catalog_unavailable",
+        )
+    if missing_document:
+        raise HTTPException(404, "Document not found")
     return await run_query(payload.question, user.id, payload.document_ids, payload.strategy)
 
 
@@ -74,7 +86,36 @@ async def query(payload: QueryRequest, user: AuthenticatedUser = Depends(require
 async def index(payload: IndexRequest, user: AuthenticatedUser = Depends(require_user)):
     document_catalog.upsert_user(user)
     payload = payload.model_copy(update={"owner_id": user.id})
-    count = await VectorStore().index(payload)
+    reserved = document_catalog.reserve_index_version(
+        user.id, payload.document_id, payload.document_name, payload.version
+    )
+    if not reserved:
+        raise HTTPException(409, "文档版本必须严格递增")
+    try:
+        count = await VectorStore().index(payload)
+        content = "\n\n".join(chunk.text for chunk in payload.chunks)
+        original_key = f"users/{user.id}/documents/{payload.document_id}/v{payload.version}/original/{payload.document_name}"
+        markdown_key = f"users/{user.id}/documents/{payload.document_id}/v{payload.version}/parsed.md"
+        object_storage.put_bytes(original_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
+        object_storage.put_bytes(markdown_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
+        pages = {chunk.page for chunk in payload.chunks if chunk.page is not None}
+        record = DocumentRecord(
+            owner_id=user.id,
+            document_id=payload.document_id,
+            document_name=payload.document_name,
+            version=payload.version,
+            content_type="text/markdown",
+            parser="api-index",
+            page_count=len(pages) or None,
+            chunk_count=count,
+            original_object_key=original_key,
+            markdown_object_key=markdown_key,
+        )
+        if not document_catalog.finalize_index(record, user.id):
+            raise HTTPException(409, "文档版本已被更新的索引请求取代")
+    except Exception:
+        document_catalog.mark_index_failed(user.id, payload.document_id, payload.version)
+        raise
     return {"document_id": payload.document_id, "version": payload.version, "indexed_chunks": count}
 
 
@@ -272,6 +313,7 @@ async def send_message(
                 user.id,
                 result.answer,
                 result.citations,
+                result.confidence,
             )
         if context.messages_to_summarize:
             transcript = "\n".join(

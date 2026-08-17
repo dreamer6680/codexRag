@@ -15,6 +15,7 @@ export type ChatMessage = {
   content: string;
   status: "pending" | "completed" | "failed";
   citations: Citation[];
+  confidence?: "high" | "medium" | "low" | "none";
   error?: string | null;
   created_at: string;
 };
@@ -52,6 +53,7 @@ export function appendPendingTurn(messages: ChatMessage[], turn: PendingTurn) {
         content: turn.question,
         status: "completed" as const,
         citations: [],
+        confidence: "none" as const,
         created_at: turn.createdAt,
       },
       {
@@ -61,6 +63,7 @@ export function appendPendingTurn(messages: ChatMessage[], turn: PendingTurn) {
         content: "",
         status: "pending" as const,
         citations: [],
+        confidence: "none" as const,
         created_at: turn.createdAt,
       },
     ],

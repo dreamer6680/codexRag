@@ -17,10 +17,18 @@ class OllamaClient:
             models = await self.tags()
         except httpx.HTTPError as exc:
             return None, f"Ollama 不可用：{exc}"
-        if settings.chat_model in models:
-            return settings.chat_model, None
-        if settings.fallback_chat_model in models:
-            return settings.fallback_chat_model, f"未找到 {settings.chat_model}，已降级到 {settings.fallback_chat_model}"
+        def resolve(requested: str) -> str | None:
+            if requested in models:
+                return requested
+            latest = f"{requested}:latest"
+            return latest if ":" not in requested and latest in models else None
+
+        primary = resolve(settings.chat_model)
+        if primary:
+            return primary, None
+        fallback = resolve(settings.fallback_chat_model)
+        if fallback:
+            return fallback, f"未找到 {settings.chat_model}，已降级到 {fallback}"
         return None, f"未拉取问答模型：{settings.chat_model} 或 {settings.fallback_chat_model}"
 
     async def chat(self, model: str, system: str, prompt: str) -> str:

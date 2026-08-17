@@ -73,7 +73,7 @@ class ChatCatalog:
             if not row:
                 return None
             message_rows = conn.execute(
-                """SELECT id, conversation_id, role, content, status, citations, error, created_at
+                """SELECT id, conversation_id, role, content, status, citations, confidence, error, created_at
                 FROM chat_messages WHERE conversation_id = %s AND owner_id = %s ORDER BY created_at""",
                 (conversation_id, owner_id),
             ).fetchall()
@@ -149,13 +149,13 @@ class ChatCatalog:
             user_row = conn.execute(
                 """INSERT INTO chat_messages (id, conversation_id, owner_id, role, content, status)
                 VALUES (%s, %s, %s, 'user', %s, 'completed')
-                RETURNING id, conversation_id, role, content, status, citations, error, created_at""",
+                RETURNING id, conversation_id, role, content, status, citations, confidence, error, created_at""",
                 (user_message_id, conversation_id, owner_id, question),
             ).fetchone()
             assistant_row = conn.execute(
                 """INSERT INTO chat_messages (id, conversation_id, owner_id, role, content, status)
                 VALUES (%s, %s, %s, 'assistant', '', 'pending')
-                RETURNING id, conversation_id, role, content, status, citations, error, created_at""",
+                RETURNING id, conversation_id, role, content, status, citations, confidence, error, created_at""",
                 (assistant_message_id, conversation_id, owner_id),
             ).fetchone()
             conversation = conn.execute(
@@ -165,13 +165,21 @@ class ChatCatalog:
             ).fetchone()
         return ConversationSummary(**conversation), ChatMessage(**user_row), ChatMessage(**assistant_row)
 
-    def finish_turn(self, assistant_id: UUID, owner_id: UUID, content: str, citations: list[Citation]) -> ChatMessage:
+    def finish_turn(
+        self,
+        assistant_id: UUID,
+        owner_id: UUID,
+        content: str,
+        citations: list[Citation],
+        confidence: str = "none",
+    ) -> ChatMessage:
         with self._connect() as conn:
             row = conn.execute(
-                """UPDATE chat_messages SET content = %s, citations = %s::jsonb, status = 'completed', error = NULL
+                """UPDATE chat_messages SET content = %s, citations = %s::jsonb, confidence = %s,
+                status = 'completed', error = NULL
                 WHERE id = %s AND owner_id = %s
-                RETURNING id, conversation_id, role, content, status, citations, error, created_at""",
-                (content, json.dumps([item.model_dump() for item in citations]), assistant_id, owner_id),
+                RETURNING id, conversation_id, role, content, status, citations, confidence, error, created_at""",
+                (content, json.dumps([item.model_dump() for item in citations]), confidence, assistant_id, owner_id),
             ).fetchone()
         return ChatMessage(**row)
 
@@ -179,7 +187,7 @@ class ChatCatalog:
         with self._connect() as conn:
             row = conn.execute(
                 """UPDATE chat_messages SET status = 'failed', error = %s WHERE id = %s AND owner_id = %s
-                RETURNING id, conversation_id, role, content, status, citations, error, created_at""",
+                RETURNING id, conversation_id, role, content, status, citations, confidence, error, created_at""",
                 (error, assistant_id, owner_id),
             ).fetchone()
         return ChatMessage(**row)

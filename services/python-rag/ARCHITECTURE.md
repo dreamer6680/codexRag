@@ -56,7 +56,9 @@ RAG 知识库保存经过审核、可引用的文档事实；记忆系统保存�
 |---|---:|---|
 | `RETRIEVAL_STRATEGY` | `vector` | 默认检索策略 |
 | `RETRIEVAL_TOP_K` | `12` | 最终召回数量 |
-| `RETRIEVAL_SCORE_THRESHOLD` | `0.35` | Qdrant 相似度门槛 |
+| `RETRIEVAL_SCORE_THRESHOLD` | `0.35` | Qdrant 初召回相似度门槛 |
+| `RETRIEVAL_MIN_EVIDENCE_SCORE` | `0.52` | 允许进入回答节点的最低证据分数 |
+| `RETRIEVAL_MAX_EVIDENCE` | `6` | 最终发送给模型的最大证据数 |
 | `CONTEXT_MAX_CHARS` | `12000` | 发送给生成模型的最大证据字符数 |
 | `RAG_HOST` / `RAG_PORT` | `127.0.0.1` / `8001` | API 监听地址 |
 

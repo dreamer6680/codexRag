@@ -66,6 +66,142 @@ class DocumentCatalog:
                 {**record.model_dump(exclude={"created_at", "updated_at"}), "owner_id": owner_id},
             )
 
+    def reserve_index_version(
+        self,
+        owner_id: UUID,
+        document_id: str,
+        document_name: str,
+        version: int,
+    ) -> bool:
+        """Reserve a new version without withdrawing the owner's ready version."""
+        self.ensure_schema()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO rag_document_index_reservations (document_id, owner_id, version, status)
+                SELECT %(document_id)s, %(owner_id)s, %(version)s, 'indexing'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM rag_documents
+                    WHERE document_id = %(document_id)s AND owner_id <> %(owner_id)s
+                )
+                  AND %(version)s > COALESCE(
+                    (SELECT version FROM rag_documents
+                     WHERE document_id = %(document_id)s AND owner_id = %(owner_id)s), 0
+                  )
+                ON CONFLICT (document_id) DO UPDATE SET
+                    owner_id = EXCLUDED.owner_id,
+                    version = EXCLUDED.version,
+                    status = 'indexing',
+                    updated_at = now()
+                WHERE rag_document_index_reservations.owner_id = EXCLUDED.owner_id
+                  AND rag_document_index_reservations.version < EXCLUDED.version
+                  AND EXCLUDED.version > COALESCE(
+                    (SELECT version FROM rag_documents
+                     WHERE document_id = EXCLUDED.document_id
+                       AND owner_id = EXCLUDED.owner_id), 0
+                  )
+                RETURNING document_id
+                """,
+                {"document_id": document_id, "owner_id": owner_id, "version": version},
+            ).fetchone()
+        return row is not None
+
+    def finalize_index(self, record: DocumentRecord, owner_id: UUID) -> bool:
+        """Atomically publish an index result if this owner still holds the reservation."""
+        self.ensure_schema()
+        values = {
+            **record.model_dump(exclude={"created_at", "updated_at"}),
+            "owner_id": owner_id,
+        }
+        with self._connect() as conn:
+            reservation = conn.execute(
+                """
+                SELECT document_id
+                FROM rag_document_index_reservations
+                WHERE document_id = %s AND owner_id = %s
+                  AND version = %s AND status = 'indexing'
+                FOR UPDATE
+                """,
+                (record.document_id, owner_id, record.version),
+            ).fetchone()
+            if reservation is None:
+                return False
+            published = conn.execute(
+                """
+                INSERT INTO rag_documents (
+                    owner_id, document_id, document_name, version, content_type, parser, status,
+                    page_count, pdf_type, chunk_count, original_object_key, markdown_object_key
+                ) VALUES (
+                    %(owner_id)s, %(document_id)s, %(document_name)s, %(version)s,
+                    %(content_type)s, %(parser)s, 'ready', %(page_count)s, %(pdf_type)s,
+                    %(chunk_count)s, %(original_object_key)s, %(markdown_object_key)s
+                )
+                ON CONFLICT (document_id) DO UPDATE SET
+                    document_name = EXCLUDED.document_name,
+                    version = EXCLUDED.version,
+                    content_type = EXCLUDED.content_type,
+                    parser = EXCLUDED.parser,
+                    status = 'ready',
+                    page_count = EXCLUDED.page_count,
+                    pdf_type = EXCLUDED.pdf_type,
+                    chunk_count = EXCLUDED.chunk_count,
+                    original_object_key = EXCLUDED.original_object_key,
+                    markdown_object_key = EXCLUDED.markdown_object_key,
+                    updated_at = now()
+                WHERE rag_documents.owner_id = EXCLUDED.owner_id
+                  AND rag_documents.version < EXCLUDED.version
+                RETURNING document_id
+                """,
+                values,
+            ).fetchone()
+            if published is None:
+                return False
+            conn.execute(
+                """
+                UPDATE rag_document_index_reservations
+                SET status = 'ready', updated_at = now()
+                WHERE document_id = %s AND owner_id = %s AND version = %s
+                """,
+                (record.document_id, owner_id, record.version),
+            )
+        return True
+
+    def mark_index_failed(self, owner_id: UUID, document_id: str, version: int) -> None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE rag_document_index_reservations
+                SET status = 'index_failed', updated_at = now()
+                WHERE document_id = %s AND owner_id = %s
+                  AND version = %s AND status = 'indexing'
+                """,
+                (document_id, owner_id, version),
+            )
+
+    def ready_document_scopes(
+        self,
+        owner_id: UUID,
+        document_ids: list[str] | None = None,
+    ) -> list[tuple[str, int]]:
+        self.ensure_schema()
+        params: list[object] = [owner_id]
+        selected = ""
+        if document_ids:
+            selected = " AND document_id = ANY(%s)"
+            params.append(document_ids)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT document_id, version
+                FROM rag_documents
+                WHERE owner_id = %s AND status = 'ready'{selected}
+                ORDER BY updated_at DESC
+                """,
+                params,
+            ).fetchall()
+        return [(row["document_id"], row["version"]) for row in rows]
+
     def list_documents(self, owner_id: UUID) -> list[DocumentRecord]:
         self.ensure_schema()
         with self._connect() as conn:

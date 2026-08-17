@@ -1,9 +1,14 @@
 """Vector, MQE, HyDE and hybrid retrieval with reciprocal-rank fusion."""
 from uuid import UUID
+from .document_catalog import DocumentCatalog
 from .models import Citation
 from .ollama import OllamaClient
 from .settings import settings
 from .vector_store import VectorStore
+
+
+class CatalogUnavailableError(RuntimeError):
+    """The active document-version scope could not be loaded safely."""
 
 
 def _key(citation: Citation) -> tuple[str, int, int | None, str | None, str]:
@@ -21,9 +26,11 @@ class MultiStrategyRetriever:
         self,
         store: VectorStore | None = None,
         llm: OllamaClient | None = None,
+        catalog: DocumentCatalog | None = None,
     ) -> None:
         self.store = store or VectorStore()
         self.llm = llm or OllamaClient()
+        self.catalog = catalog or DocumentCatalog()
 
     async def _expand(self, question: str) -> list[str]:
         model, _ = await self.llm.choose_chat_model()
@@ -61,7 +68,11 @@ class MultiStrategyRetriever:
             # Query enhancement is optional; base vector retrieval remains available.
             pass
 
-        ranked_lists = [await self.store.search(query, owner_id, document_ids) for query in queries]
+        try:
+            document_scope = self.catalog.ready_document_scopes(owner_id, document_ids)
+        except Exception as exc:
+            raise CatalogUnavailableError("document catalog unavailable") from exc
+        ranked_lists = [await self.store.search(query, owner_id, document_scope) for query in queries]
         scores: dict[tuple[str, int, int | None, str | None, str], float] = {}
         items: dict[tuple[str, int, int | None, str | None, str], Citation] = {}
         for ranked in ranked_lists:

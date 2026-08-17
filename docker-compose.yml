@@ -62,8 +62,8 @@ services:
     environment:
       # Ollama runs directly on the host, not in Docker.
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-      CHAT_MODEL: ${CHAT_MODEL:-qwen3:14b}
-      FALLBACK_CHAT_MODEL: ${FALLBACK_CHAT_MODEL:-qwen3:8b}
+      CHAT_MODEL: ${CHAT_MODEL:-gemma3}
+      FALLBACK_CHAT_MODEL: ${FALLBACK_CHAT_MODEL:-qwen2.5:7b}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       RERANK_MODEL: ${RERANK_MODEL:-qllama/bge-reranker-v2-m3}
       QDRANT_URL: http://qdrant:6333
