@@ -53,7 +53,11 @@ async def health():
 
 @app.post("/rag/query", response_model=QueryResponse)
 async def query(payload: QueryRequest):
-    return await run_query(payload.question, payload.document_ids, payload.strategy)
+    active_ids = document_catalog.ready_document_ids()
+    if payload.document_ids:
+        requested = set(payload.document_ids)
+        active_ids = [document_id for document_id in active_ids if document_id in requested]
+    return await run_query(payload.question, active_ids, payload.strategy)
 
 
 @app.post("/rag/index")

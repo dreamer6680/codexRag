@@ -23,6 +23,7 @@ class QueryResponse(BaseModel):
     status: Literal["answered", "refused", "unavailable"]
     answer: str
     citations: list[Citation] = []
+    confidence: Literal["high", "medium", "low", "none"] = "none"
     model: str | None = None
     reason: str | None = None
 

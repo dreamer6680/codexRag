@@ -4,6 +4,7 @@ from langgraph.graph import END, START, StateGraph
 from .models import Citation, QueryResponse
 from .ollama import OllamaClient
 from .context import ContextBuilder
+from .evidence import EvidencePolicy
 from .retrieval import MultiStrategyRetriever
 from .settings import settings
 
@@ -17,18 +18,29 @@ class RAGState(TypedDict, total=False):
     reason: str
     model: str
     strategy: str
+    confidence: str
 
 
 async def retrieve(state: RAGState) -> RAGState:
     # Low-confidence/OCR-uncertain chunks are filtered by the store before evidence gating.
     try:
-        citations = await MultiStrategyRetriever().retrieve(
+        candidates = await MultiStrategyRetriever().retrieve(
             state["question"], state.get("document_ids"), state.get("strategy")
         )
-        return {"citations": citations}
+        decision = EvidencePolicy(
+            min_score=settings.retrieval_min_evidence_score,
+            max_evidence=settings.retrieval_max_evidence,
+            medium_score=settings.retrieval_medium_confidence_score,
+            high_score=settings.retrieval_high_confidence_score,
+        ).filter(candidates, question=state["question"])
+        return {
+            "citations": decision.citations,
+            "confidence": decision.confidence,
+            "reason": decision.reason,
+        }
     except Exception:
         # An unavailable vector database must never cause fabricated output.
-        return {"citations": []}
+        return {"citations": [], "confidence": "none", "reason": "retrieval_unavailable"}
 
 
 def evidence_gate(state: RAGState) -> str:
@@ -36,7 +48,12 @@ def evidence_gate(state: RAGState) -> str:
 
 
 async def refuse(state: RAGState) -> RAGState:
-    return {"status": "refused", "answer": "现有知识库中没有足以支持该问题的可靠证据，因此我不能确认答案。", "reason": "insufficient_evidence"}
+    return {
+        "status": "refused",
+        "answer": "现有知识库中没有足以支持该问题的可靠证据，因此我不能确认答案。",
+        "confidence": "none",
+        "reason": state.get("reason") or "insufficient_evidence",
+    }
 
 
 async def answer(state: RAGState) -> RAGState:
@@ -47,7 +64,14 @@ async def answer(state: RAGState) -> RAGState:
     evidence, citations = ContextBuilder(settings.context_max_chars).build(state["citations"])
     system = "你是严格的本地知识库助手。只能根据给定证据回答；不能补充外部知识；每项结论都要标记 [编号]。"
     text = await client.chat(model, system, f"问题：{state['question']}\n\n证据：\n{evidence}")
-    return {"status": "answered", "answer": text, "citations": citations, "model": model, "reason": error}
+    return {
+        "status": "answered",
+        "answer": text,
+        "citations": citations,
+        "confidence": state.get("confidence", "low"),
+        "model": model,
+        "reason": error,
+    }
 
 
 def build_graph():
@@ -78,4 +102,11 @@ async def run_query(
     result = await build_graph().ainvoke(
         {"question": question, "document_ids": document_ids or [], "strategy": strategy or settings.retrieval_strategy}
     )
-    return QueryResponse(status=result["status"], answer=result["answer"], citations=result.get("citations", []), model=result.get("model"), reason=result.get("reason"))
+    return QueryResponse(
+        status=result["status"],
+        answer=result["answer"],
+        citations=result.get("citations", []),
+        confidence=result.get("confidence", "none"),
+        model=result.get("model"),
+        reason=result.get("reason"),
+    )

@@ -5,9 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ConfidenceLevel, evidenceBanner } from "@/lib/query-presentation";
 
 type Citation = { document_id: string; document_name: string; version: number; page?: number; section?: string; excerpt: string; confidence: number };
-type Result = { status: "answered" | "refused" | "unavailable"; answer: string; citations: Citation[]; reason?: string };
+type Result = { status: "answered" | "refused" | "unavailable"; answer: string; citations: Citation[]; confidence: ConfidenceLevel; reason?: string };
 type View = "chat" | "documents" | "parsing" | "detail";
 type PdfInspection = { pdf_type: "TextBased" | "Scanned" | "ImageBased" | "Mixed"; page_count: number; confidence: number; pages_needing_ocr: number[] };
 type UploadResult = { document_id: string; document_name: string; version: number; indexed_chunks: number; parser: string; status: "ready"; inspection?: PdfInspection };
@@ -25,28 +26,8 @@ type DocumentRecord = {
   created_at?: string | null;
   updated_at?: string | null;
 };
-type DocumentRow = DocumentRecord & { type: string; time: string; isDemo?: boolean };
+type DocumentRow = DocumentRecord & { type: string; time: string };
 type DocumentDetailData = DocumentRow & { original_url: string; markdown: string; chunks: DocumentChunk[] };
-
-const demoCitations: Citation[] = [
-  { document_id: "prd", document_name: "产品需求管理规范.pdf", version: 3, page: 8, section: "需求评审", confidence: .95, excerpt: "评审小组由产品、研发、测试及业务代表组成。" },
-  { document_id: "prd", document_name: "产品需求管理规范.pdf", version: 3, page: 10, section: "评审准备", confidence: .92, excerpt: "产品负责人应在会前提交 PRD、交互稿与成本评估。" },
-];
-
-const demoDocuments: DocumentRow[] = [
-  { document_id: "demo-prd", document_name: "产品需求管理规范.pdf", version: 3, content_type: "application/pdf", parser: "demo", status: "ready", page_count: 48, pdf_type: "TextBased", chunk_count: 126, type: "PDF", time: "昨天 17:42", isDemo: true },
-  { document_id: "demo-handbook", document_name: "2026 Q3 研发协作手册.docx", version: 1, content_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", parser: "demo", status: "index_failed", chunk_count: 72, type: "DOCX", time: "6 分钟前", isDemo: true },
-];
-
-const demoDetail: DocumentDetailData = {
-  ...demoDocuments[0],
-  original_url: "",
-  markdown: "# 产品需求管理规范\n\n## 需求评审\n\n评审小组由产品、研发、测试及业务代表组成。\n\n- 产品负责人提交 PRD\n- 研发负责人确认技术方案\n- 测试负责人确认验收范围\n\n> 涉及数据采集或个人信息时，需要安全与法务共同确认。\n\n| 阶段 | 输出 |\n| --- | --- |\n| 会前 | PRD、交互稿、成本评估 |\n| 会后 | 需求卡片和评审结论 |",
-  chunks: [
-    { index: 0, page: 8, section: "需求评审", text: "评审小组由产品、研发、测试及业务代表组成。", char_start: 0, char_end: 23, confidence: .95 },
-    { index: 1, page: 10, section: "评审准备", text: "产品负责人应在会前提交 PRD、交互稿与成本评估。", char_start: 24, char_end: 52, confidence: .92 },
-  ],
-};
 
 function Status({ value }: { value: string }) {
   const styles = value === "ready" || value === "已就绪"
@@ -61,15 +42,12 @@ function Status({ value }: { value: string }) {
 export default function Home() {
   const [view, setView] = useState<View>("chat");
   const [question, setQuestion] = useState("");
+  const [submittedQuestion, setSubmittedQuestion] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Result | null>({
-    status: "answered",
-    answer: "按照当前的《产品需求管理规范》，需求评审至少应包含产品负责人、研发负责人、测试负责人和业务代表。若需求涉及数据采集或个人信息，还需要邀请安全与法务同事共同确认。",
-    citations: demoCitations,
-  });
+  const [result, setResult] = useState<Result | null>(null);
   const [activeChunk, setActiveChunk] = useState(0);
-  const [documents, setDocuments] = useState<DocumentRow[]>(demoDocuments);
-  const [selectedDocument, setSelectedDocument] = useState<DocumentDetailData | null>(demoDetail);
+  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentDetailData | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [lastInspection, setLastInspection] = useState<PdfInspection | null>(null);
@@ -80,9 +58,9 @@ export default function Home() {
       if (!response.ok) return;
       const payload = await response.json() as { documents?: DocumentRecord[] };
       const persistentRows = (payload.documents || []).map(recordToRow);
-      setDocuments([...persistentRows, ...demoDocuments]);
+      setDocuments(persistentRows);
     } catch {
-      setDocuments(current => current.length ? current : demoDocuments);
+      setDocuments([]);
     }
   }
 
@@ -118,11 +96,6 @@ export default function Home() {
 
   async function openDetail(row: DocumentRow) {
     setActiveChunk(0);
-    if (row.isDemo) {
-      setSelectedDocument(demoDetail);
-      setView("detail");
-      return;
-    }
     try {
       const response = await fetch(`/api/documents/${row.document_id}`, { cache: "no-store" });
       const payload = await response.json();
@@ -137,18 +110,20 @@ export default function Home() {
 
   async function ask(event: FormEvent) {
     event.preventDefault();
-    if (!question.trim()) return;
+    const submitted = question.trim();
+    if (!submitted) return;
+    setSubmittedQuestion(submitted);
     setLoading(true);
     setResult(null);
     try {
       const response = await fetch("/api/query", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question: submitted }),
       });
       setResult(await response.json());
     } catch {
-      setResult({ status: "unavailable", answer: "无法连接本地 RAG 服务。请检查 Docker 服务状态。", citations: [] });
+      setResult({ status: "unavailable", answer: "无法连接本地 RAG 服务。请检查 Docker 服务状态。", citations: [], confidence: "none" });
     } finally {
       setLoading(false);
     }
@@ -181,7 +156,7 @@ export default function Home() {
         <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">本地 RAG</Badge>
       </header>
       <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
-        {view === "chat" && <Chat question={question} setQuestion={setQuestion} ask={ask} loading={loading} result={result} documents={documents} uploading={uploading} onUpload={uploadFile} />}
+        {view === "chat" && <Chat question={question} submittedQuestion={submittedQuestion} setQuestion={setQuestion} ask={ask} loading={loading} result={result} documents={documents} uploading={uploading} onUpload={uploadFile} />}
         {view === "documents" && <Documents documents={documents} uploadMessage={uploadMessage} inspection={lastInspection} uploading={uploading} onUpload={uploadFile} onDetail={openDetail} />}
         {view === "parsing" && <Parsing documents={documents} onDetail={openDetail} />}
         {view === "detail" && <Detail document={selectedDocument} activeChunk={activeChunk} setActiveChunk={setActiveChunk} back={() => setView("documents")} />}
@@ -190,7 +165,8 @@ export default function Home() {
   </div>;
 }
 
-function Chat({ question, setQuestion, ask, loading, result, documents, uploading, onUpload }: { question: string; setQuestion: (value: string) => void; ask: (event: FormEvent) => void; loading: boolean; result: Result | null; documents: DocumentRow[]; uploading: boolean; onUpload: (file: File) => Promise<void> }) {
+function Chat({ question, submittedQuestion, setQuestion, ask, loading, result, documents, uploading, onUpload }: { question: string; submittedQuestion: string; setQuestion: (value: string) => void; ask: (event: FormEvent) => void; loading: boolean; result: Result | null; documents: DocumentRow[]; uploading: boolean; onUpload: (file: File) => Promise<void> }) {
+  const banner = result ? evidenceBanner(result.confidence, result.citations.length) : null;
   return <>
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
       <div>
@@ -206,14 +182,15 @@ function Chat({ question, setQuestion, ask, loading, result, documents, uploadin
           <Button variant="outline" className="h-8">筛选资料</Button>
         </div>
         <div className="min-h-[440px] space-y-7 p-5">
-          <div className="ml-auto max-w-lg rounded-lg bg-zinc-100 p-4 text-sm">
-            <p className="mb-1 text-xs text-muted-foreground">你</p>新版本的需求评审，需要哪些关键角色参加？
-          </div>
+          {submittedQuestion && <div className="ml-auto max-w-lg rounded-lg bg-zinc-100 p-4 text-sm">
+            <p className="mb-1 text-xs text-muted-foreground">你</p>{submittedQuestion}
+          </div>}
+          {!submittedQuestion && !loading && !result && <div className="grid min-h-72 place-items-center text-center text-sm text-muted-foreground">输入问题后，系统会先检索并核验证据；没有可靠依据时会直接拒答。</div>}
           {loading && <div className="text-sm text-muted-foreground">正在检索、重排并核验证据…</div>}
           {result && <div className="max-w-2xl">
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><span className="grid h-7 w-7 place-items-center rounded-md bg-zinc-900 text-white">知</span>知见助手</div>
             <p className="whitespace-pre-line text-sm leading-7">{result.answer}</p>
-            {result.citations.length > 0 && <div className="mt-5 border-l-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">检索到 {result.citations.length} 份直接依据，<b>回答置信度高</b></div>}
+            {banner && <div className={`mt-5 border-l-2 px-3 py-2 text-xs ${banner.className}`}>{banner.label}</div>}
           </div>}
         </div>
         <form onSubmit={ask} className="flex gap-2 border-t p-4">
@@ -239,7 +216,7 @@ function Sources({ citations, documents, uploading, onUpload }: { citations: Cit
     <Card className="p-5">
       <h2 className="text-lg font-semibold">资料库</h2>
       <UploadButton uploading={uploading} onUpload={onUpload} className="mt-4 w-full justify-start" />
-      <div className="mt-4 space-y-3">{documents.slice(0, 2).map(doc => <DocumentMini key={doc.document_id} doc={doc} />)}</div>
+      <div className="mt-4 space-y-3">{documents.length ? documents.slice(0, 2).map(doc => <DocumentMini key={doc.document_id} doc={doc} />) : <p className="text-sm text-muted-foreground">还没有已入库文档。</p>}</div>
     </Card>
     <Card className="p-5">
       <div className="mb-4 flex items-center justify-between">
@@ -316,22 +293,22 @@ function InspectionCard({ inspection }: { inspection: PdfInspection }) {
 
 function Parsing({ documents, onDetail }: { documents: DocumentRow[]; onDetail: (row: DocumentRow) => void }) {
   const ready = documents.filter(doc => doc.status === "ready");
-  const latest = ready[0] || demoDocuments[0];
+  const latest = ready[0];
   return <>
     <h1 className="text-3xl font-semibold tracking-tight">解析任务</h1>
     <p className="mt-2 text-sm text-muted-foreground">跟踪文件提取、分块与向量索引的每一步。</p>
     <div className="mt-7 grid gap-5 md:grid-cols-3">
       <Metric value={String(ready.length)} label="已完成文档" />
       <Metric value={String(documents.reduce((sum, doc) => sum + doc.chunk_count, 0))} label="累计分块" />
-      <Metric value={latest.parser || "parser"} label="最近解析器" />
+      <Metric value={latest?.parser || "暂无"} label="最近解析器" />
     </div>
-    <Card className="mt-5 p-5">
+    {latest ? <Card className="mt-5 p-5">
       <div className="flex items-center justify-between">
         <div><h2 className="font-semibold">{latest.document_name}</h2><p className="mt-1 text-sm text-muted-foreground">可查看原始文件、解析 Markdown 与向量分块。</p></div>
         <Status value={latest.status} />
       </div>
       <div className="mt-5 flex justify-end"><Button variant="outline" onClick={() => onDetail(latest)}>查看解析详情</Button></div>
-    </Card>
+    </Card> : <Card className="mt-5 p-6 text-sm text-muted-foreground">还没有已完成的解析任务。</Card>}
   </>;
 }
 

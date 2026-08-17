@@ -22,8 +22,8 @@ python start_rag.py --with-infra
 3. 在本机 Ollama 中下载模型（首次且网络可用时）：
 
 ```powershell
-ollama pull qwen3:14b
-ollama pull qwen3:8b
+ollama pull gemma3
+ollama pull qwen2.5:7b
 ollama pull bge-m3
 ollama pull qllama/bge-reranker-v2-m3
 ```

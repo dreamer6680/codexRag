@@ -54,8 +54,10 @@ class VectorStore:
         ]
 
     async def search(self, question: str, document_ids: list[str] | None = None) -> list[Citation]:
+        if document_ids is not None and not document_ids:
+            return []
         vector = (await self.embedding.embed([question]))[0]
-        query_filter = Filter(must=[FieldCondition(key="document_id", match=MatchAny(any=document_ids))]) if document_ids else None
+        query_filter = Filter(must=[FieldCondition(key="document_id", match=MatchAny(any=document_ids))]) if document_ids is not None else None
         hits = self.client.query_points(
             COLLECTION,
             query=vector,

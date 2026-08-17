@@ -5,5 +5,5 @@ export async function POST(request: NextRequest) {
   try {
     const response = await fetch(`${upstream}/rag/query`, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(payload), cache:"no-store" });
     return NextResponse.json(await response.json(), {status:response.status});
-  } catch { return NextResponse.json({status:"unavailable",answer:"本地 RAG 服务未启动。",citations:[]},{status:503}); }
+  } catch { return NextResponse.json({status:"unavailable",answer:"本地 RAG 服务未启动。",citations:[],confidence:"none"},{status:503}); }
 }
