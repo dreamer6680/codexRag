@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChatPanel } from "@/components/chat-panel";
 import { ChatSidebar } from "@/components/chat-sidebar";
+import { DocumentDetailView, type DocumentDetail } from "@/components/document-detail-view";
 import { appendPendingTurn, completePendingTurn, failPendingTurn, type ChatMessage, type ConversationDetail, type ConversationListItem } from "@/lib/chat-state";
 
 type DocumentRecord = { document_id: string; document_name: string; version: number; content_type?: string | null; parser: string; status: "ready" | "index_failed"; page_count?: number | null; pdf_type?: string | null; chunk_count: number; created_at?: string | null; updated_at?: string | null };
-type DocumentDetail = DocumentRecord & { original_url: string; markdown: string; chunks: Array<{ index: number; text: string; page?: number | null; section?: string | null }> };
 type View = "chat" | "documents" | "detail";
 
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -158,9 +158,4 @@ export function Workspace() {
 function DocumentsView({ documents, uploading, onUpload, onOpen }: { documents: DocumentRecord[]; uploading: boolean; onUpload: (file: File) => void; onOpen: (id: string) => void }) {
   const input = useRef<HTMLInputElement>(null);
   return <div><div className="flex items-end justify-between"><div><h1 className="text-3xl font-semibold tracking-tight">我的文档</h1><p className="mt-2 text-sm text-zinc-500">这里只有当前账户上传的资料。</p></div><Button variant="outline" disabled={uploading} onClick={() => input.current?.click()}>{uploading ? "解析中…" : "上传资料"}</Button><input ref={input} className="hidden" type="file" accept=".pdf,.txt,.md" onChange={event => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ""; }} /></div><Card className="mt-7 overflow-hidden"><div className="border-b px-5 py-4 text-sm font-medium">全部资料 <span className="text-zinc-500">{documents.length}</span></div>{documents.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-zinc-50 text-xs text-zinc-500"><tr><th className="px-5 py-3">名称</th><th className="px-5 py-3">状态</th><th className="px-5 py-3">分块</th><th className="px-5 py-3">解析器</th><th /></tr></thead><tbody>{documents.map(document => <tr key={document.document_id} className="border-t"><td className="px-5 py-4 font-medium">{document.document_name}</td><td className="px-5 py-4">{document.status === "ready" ? "已就绪" : "索引失败"}</td><td className="px-5 py-4 text-zinc-500">{document.chunk_count}</td><td className="px-5 py-4 text-zinc-500">{document.parser}</td><td className="px-5 py-4 text-right"><Button variant="ghost" onClick={() => onOpen(document.document_id)}>查看</Button></td></tr>)}</tbody></table></div> : <div className="grid min-h-72 place-items-center text-center"><div><p className="font-medium">还没有个人文档</p><p className="mt-2 text-sm text-zinc-500">上传 PDF、TXT 或 Markdown 后即可开始检索。</p></div></div>}</Card></div>;
-}
-
-function DocumentDetailView({ detail, onBack }: { detail: DocumentDetail | null; onBack: () => void }) {
-  if (!detail) return null;
-  return <div><Button variant="ghost" className="px-0" onClick={onBack}>返回我的文档</Button><div className="mt-5"><h1 className="text-3xl font-semibold tracking-tight">{detail.document_name}</h1><p className="mt-2 text-sm text-zinc-500">{detail.parser} · {detail.chunk_count} 个分块</p></div><div className="mt-7 grid gap-5 xl:grid-cols-2"><Card className="overflow-hidden"><div className="border-b px-4 py-3 text-sm font-medium">原始文件</div>{detail.content_type?.includes("pdf") ? <iframe title="原始 PDF" src={detail.original_url} className="h-[620px] w-full" /> : <pre className="h-[620px] overflow-auto whitespace-pre-wrap p-5 text-sm leading-7">{detail.markdown}</pre>}</Card><Card className="overflow-hidden"><div className="border-b px-4 py-3 text-sm font-medium">解析 Markdown</div><pre className="h-[620px] overflow-auto whitespace-pre-wrap p-5 text-sm leading-7">{detail.markdown}</pre></Card></div></div>;
 }
