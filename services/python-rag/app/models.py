@@ -130,6 +130,7 @@ class ChatMessage(BaseModel):
     content: str
     status: Literal["pending", "completed", "failed"]
     citations: list[Citation] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low", "none"] = "none"
     error: str | None = None
     created_at: datetime
 

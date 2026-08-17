@@ -6,7 +6,7 @@ from .models import Citation, QueryResponse
 from .ollama import OllamaClient
 from .context import ContextBuilder
 from .evidence import EvidencePolicy
-from .retrieval import MultiStrategyRetriever
+from .retrieval import CatalogUnavailableError, MultiStrategyRetriever
 from .settings import settings
 
 
@@ -45,13 +45,33 @@ async def retrieve(state: RAGState) -> RAGState:
             "confidence": decision.confidence,
             "reason": decision.reason,
         }
+    except CatalogUnavailableError:
+        return {
+            "status": "unavailable",
+            "answer": "文档目录当前不可用。",
+            "citations": [],
+            "confidence": "none",
+            "reason": "catalog_unavailable",
+        }
     except Exception:
         # An unavailable vector database must never cause fabricated output.
-        return {"citations": [], "confidence": "none", "reason": "retrieval_unavailable"}
+        return {
+            "status": "unavailable",
+            "answer": "检索服务当前不可用。",
+            "citations": [],
+            "confidence": "none",
+            "reason": "retrieval_unavailable",
+        }
 
 
 def evidence_gate(state: RAGState) -> str:
+    if state.get("status") == "unavailable":
+        return "service_unavailable"
     return "generate_answer" if state.get("citations") else "refuse_answer"
+
+
+async def unavailable(state: RAGState) -> RAGState:
+    return state
 
 
 async def refuse(state: RAGState) -> RAGState:
@@ -96,6 +116,7 @@ def build_graph():
     # Node names must not collide with RAGState keys (for example, "answer").
     graph.add_node("generate_answer", answer)
     graph.add_node("refuse_answer", refuse)
+    graph.add_node("unavailable_answer", unavailable)
     graph.add_edge(START, "retrieve")
     graph.add_conditional_edges(
         "retrieve",
@@ -103,10 +124,12 @@ def build_graph():
         {
             "generate_answer": "generate_answer",
             "refuse_answer": "refuse_answer",
+            "service_unavailable": "unavailable_answer",
         },
     )
     graph.add_edge("generate_answer", END)
     graph.add_edge("refuse_answer", END)
+    graph.add_edge("unavailable_answer", END)
     return graph.compile()
 
 

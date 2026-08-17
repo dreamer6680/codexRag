@@ -76,9 +76,13 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content text NOT NULL DEFAULT '',
     status text NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
     citations jsonb NOT NULL DEFAULT '[]'::jsonb,
+    confidence text NOT NULL DEFAULT 'none',
     error text,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE chat_messages
+    ADD COLUMN IF NOT EXISTS confidence text NOT NULL DEFAULT 'none';
 
 CREATE INDEX IF NOT EXISTS chat_messages_conversation_created_idx
     ON chat_messages (owner_id, conversation_id, created_at);

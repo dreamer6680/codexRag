@@ -7,6 +7,10 @@ from .settings import settings
 from .vector_store import VectorStore
 
 
+class CatalogUnavailableError(RuntimeError):
+    """The active document-version scope could not be loaded safely."""
+
+
 def _key(citation: Citation) -> tuple[str, int, int | None, str | None, str]:
     return (
         citation.document_id,
@@ -64,7 +68,10 @@ class MultiStrategyRetriever:
             # Query enhancement is optional; base vector retrieval remains available.
             pass
 
-        document_scope = self.catalog.ready_document_scopes(owner_id, document_ids)
+        try:
+            document_scope = self.catalog.ready_document_scopes(owner_id, document_ids)
+        except Exception as exc:
+            raise CatalogUnavailableError("document catalog unavailable") from exc
         ranked_lists = [await self.store.search(query, owner_id, document_scope) for query in queries]
         scores: dict[tuple[str, int, int | None, str | None, str], float] = {}
         items: dict[tuple[str, int, int | None, str | None, str], Citation] = {}

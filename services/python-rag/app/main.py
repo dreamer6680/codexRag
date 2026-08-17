@@ -310,6 +310,7 @@ async def send_message(
                 user.id,
                 result.answer,
                 result.citations,
+                result.confidence,
             )
         if context.messages_to_summarize:
             transcript = "\n".join(
