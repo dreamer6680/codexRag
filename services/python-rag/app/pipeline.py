@@ -23,7 +23,7 @@ class RAGPipeline:
     async def retrieve(
         self,
         question: str,
-        document_ids: list[str] | None = None,
+        document_scope: list[tuple[str, int]] | None = None,
         strategy: str | None = None,
     ) -> list[Citation]:
-        return await self.retriever.retrieve(question, document_ids, strategy)
+        return await self.retriever.retrieve(question, document_scope, strategy)

@@ -11,7 +11,7 @@ from .settings import settings
 
 class RAGState(TypedDict, total=False):
     question: str
-    document_ids: list[str]
+    document_scope: list[tuple[str, int]]
     citations: list[Citation]
     answer: str
     status: str
@@ -25,7 +25,7 @@ async def retrieve(state: RAGState) -> RAGState:
     # Low-confidence/OCR-uncertain chunks are filtered by the store before evidence gating.
     try:
         candidates = await MultiStrategyRetriever().retrieve(
-            state["question"], state.get("document_ids"), state.get("strategy")
+            state["question"], state.get("document_scope"), state.get("strategy")
         )
         decision = EvidencePolicy(
             min_score=settings.retrieval_min_evidence_score,
@@ -62,13 +62,19 @@ async def answer(state: RAGState) -> RAGState:
     if not model:
         return {"status": "unavailable", "answer": "本地模型当前不可用。", "reason": error or "ollama_unavailable"}
     evidence, citations = ContextBuilder(settings.context_max_chars).build(state["citations"])
+    confidence = EvidencePolicy(
+        min_score=settings.retrieval_min_evidence_score,
+        max_evidence=settings.retrieval_max_evidence,
+        medium_score=settings.retrieval_medium_confidence_score,
+        high_score=settings.retrieval_high_confidence_score,
+    ).confidence_for(citations)
     system = "你是严格的本地知识库助手。只能根据给定证据回答；不能补充外部知识；每项结论都要标记 [编号]。"
     text = await client.chat(model, system, f"问题：{state['question']}\n\n证据：\n{evidence}")
     return {
         "status": "answered",
         "answer": text,
         "citations": citations,
-        "confidence": state.get("confidence", "low"),
+        "confidence": confidence,
         "model": model,
         "reason": error,
     }
@@ -96,11 +102,11 @@ def build_graph():
 
 async def run_query(
     question: str,
-    document_ids: list[str] | None = None,
+    document_scope: list[tuple[str, int]] | None = None,
     strategy: str | None = None,
 ) -> QueryResponse:
     result = await build_graph().ainvoke(
-        {"question": question, "document_ids": document_ids or [], "strategy": strategy or settings.retrieval_strategy}
+        {"question": question, "document_scope": document_scope or [], "strategy": strategy or settings.retrieval_strategy}
     )
     return QueryResponse(
         status=result["status"],

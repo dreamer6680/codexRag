@@ -25,7 +25,6 @@ python start_rag.py --with-infra
 ollama pull gemma3
 ollama pull qwen2.5:7b
 ollama pull bge-m3
-ollama pull qllama/bge-reranker-v2-m3
 ```
 
 4. 打开 `http://localhost:3000`。所有端口均绑定到 `127.0.0.1`。
@@ -44,7 +43,7 @@ Ollama 不可用，请确认本机 Ollama 已启动并允许 Docker 访问；必
 
 ## RAG API
 
-- `POST /rag/index`：写入已经解析、切块后的文档片段。
+- `POST /rag/index`：写入已经解析、切块后的文档片段，并登记为可检索文档。
 - `POST /rag/upload`：上传 PDF、TXT 或 Markdown；PDF 由 MinerU 解析并自动写入向量库。
 
 PDF 上传前，Next.js 上传代理会使用

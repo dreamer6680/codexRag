@@ -23,7 +23,7 @@ def test_rejects_candidates_when_best_similarity_is_below_minimum():
 
 
 def test_keeps_only_relevant_candidates_and_caps_final_evidence():
-    candidates = [citation(0.70 - index * 0.01, f"evidence {index}") for index in range(10)]
+    candidates = [citation(0.80 - index * 0.01, f"evidence {index}") for index in range(10)]
 
     decision = EvidencePolicy(min_score=0.52, max_evidence=6).filter(candidates)
 
@@ -31,6 +31,14 @@ def test_keeps_only_relevant_candidates_and_caps_final_evidence():
     assert all(item.confidence >= 0.52 for item in decision.citations)
     assert decision.confidence == "high"
     assert decision.reason is None
+
+
+def test_confidence_is_conservative_across_all_returned_evidence():
+    decision = EvidencePolicy(min_score=0.52, max_evidence=6).filter(
+        [citation(0.80, "strong"), citation(0.55, "weak")]
+    )
+
+    assert decision.confidence == "low"
 
 
 def test_reports_low_confidence_for_barely_relevant_evidence():

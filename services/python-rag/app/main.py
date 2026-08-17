@@ -53,16 +53,43 @@ async def health():
 
 @app.post("/rag/query", response_model=QueryResponse)
 async def query(payload: QueryRequest):
-    active_ids = document_catalog.ready_document_ids()
+    try:
+        document_scope = document_catalog.ready_document_scopes()
+    except Exception:
+        return QueryResponse(
+            status="unavailable",
+            answer="文档目录当前不可用。",
+            confidence="none",
+            reason="catalog_unavailable",
+        )
     if payload.document_ids:
         requested = set(payload.document_ids)
-        active_ids = [document_id for document_id in active_ids if document_id in requested]
-    return await run_query(payload.question, active_ids, payload.strategy)
+        document_scope = [scope for scope in document_scope if scope[0] in requested]
+    return await run_query(payload.question, document_scope, payload.strategy)
 
 
 @app.post("/rag/index")
 async def index(payload: IndexRequest):
     count = await VectorStore().index(payload)
+    content = "\n\n".join(chunk.text for chunk in payload.chunks)
+    original_key = f"documents/{payload.document_id}/v{payload.version}/original/{payload.document_name}"
+    markdown_key = f"documents/{payload.document_id}/v{payload.version}/parsed.md"
+    object_storage.put_bytes(original_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
+    object_storage.put_bytes(markdown_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
+    pages = {chunk.page for chunk in payload.chunks if chunk.page is not None}
+    document_catalog.upsert(
+        DocumentRecord(
+            document_id=payload.document_id,
+            document_name=payload.document_name,
+            version=payload.version,
+            content_type="text/markdown",
+            parser="api-index",
+            page_count=len(pages) or None,
+            chunk_count=count,
+            original_object_key=original_key,
+            markdown_object_key=markdown_key,
+        )
+    )
     return {"document_id": payload.document_id, "version": payload.version, "indexed_chunks": count}
 
 

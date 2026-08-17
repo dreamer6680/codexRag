@@ -53,11 +53,16 @@ class EvidencePolicy:
         if not selected:
             return EvidenceDecision([], "none", "low_relevance")
 
-        best_score = max(item.confidence for item in selected)
-        if best_score >= self.high_score:
+        return EvidenceDecision(selected, self.confidence_for(selected))
+
+    def confidence_for(self, citations: list[Citation]) -> ConfidenceLevel:
+        if not citations:
+            return "none"
+        lowest_score = min(item.confidence for item in citations)
+        if lowest_score >= self.high_score:
             confidence: ConfidenceLevel = "high"
-        elif best_score >= self.medium_score:
+        elif lowest_score >= self.medium_score:
             confidence = "medium"
         else:
             confidence = "low"
-        return EvidenceDecision(selected, confidence)
+        return confidence

@@ -90,6 +90,19 @@ class DocumentCatalog:
             ).fetchall()
         return [row["document_id"] for row in rows]
 
+    def ready_document_scopes(self) -> list[tuple[str, int]]:
+        self.ensure_schema()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT document_id, version
+                FROM rag_documents
+                WHERE status = 'ready'
+                ORDER BY updated_at DESC
+                """
+            ).fetchall()
+        return [(row["document_id"], row["version"]) for row in rows]
+
     def get(self, document_id: str) -> DocumentRecord | None:
         self.ensure_schema()
         with self._connect() as conn:

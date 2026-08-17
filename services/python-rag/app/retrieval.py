@@ -45,7 +45,7 @@ class MultiStrategyRetriever:
     async def retrieve(
         self,
         question: str,
-        document_ids: list[str] | None = None,
+        document_scope: list[tuple[str, int]] | None = None,
         strategy: str | None = None,
     ) -> list[Citation]:
         selected = strategy or settings.retrieval_strategy
@@ -59,7 +59,7 @@ class MultiStrategyRetriever:
             # Query enhancement is optional; base vector retrieval remains available.
             pass
 
-        ranked_lists = [await self.store.search(query, document_ids) for query in queries]
+        ranked_lists = [await self.store.search(query, document_scope) for query in queries]
         scores: dict[tuple[str, int, int | None, str | None, str], float] = {}
         items: dict[tuple[str, int, int | None, str | None, str], Citation] = {}
         for ranked in ranked_lists:

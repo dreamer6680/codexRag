@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 from app.vector_store import VectorStore
 
@@ -11,6 +12,30 @@ class FailingEmbedding:
 def test_empty_document_scope_returns_no_results_without_querying_qdrant():
     store = VectorStore(embedding=FailingEmbedding())
 
-    results = asyncio.run(store.search("question", document_ids=[]))
+    results = asyncio.run(store.search("question", document_scope=[]))
 
     assert results == []
+
+
+class StaticEmbedding:
+    async def embed(self, texts):
+        return [[0.1, 0.2]]
+
+
+class RecordingClient:
+    def query_points(self, *args, **kwargs):
+        self.query_filter = kwargs["query_filter"]
+        return SimpleNamespace(points=[])
+
+
+def test_document_scope_filters_by_exact_document_and_version_pair():
+    store = VectorStore(embedding=StaticEmbedding())
+    client = RecordingClient()
+    store.client = client
+
+    asyncio.run(store.search("question", document_scope=[("doc-1", 2)]))
+
+    payload = client.query_filter.model_dump(exclude_none=True)
+    conditions = payload["should"][0]["must"]
+    assert conditions[0] == {"key": "document_id", "match": {"value": "doc-1"}}
+    assert conditions[1] == {"key": "version", "match": {"value": 2}}
