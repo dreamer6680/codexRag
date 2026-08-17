@@ -57,3 +57,24 @@ def test_answer_recomputes_confidence_from_citations_that_fit_context(monkeypatc
 
     assert len(result["citations"]) == 1
     assert result["confidence"] == "low"
+
+
+def test_answer_refuses_if_context_builder_drops_every_citation(monkeypatch):
+    async def must_not_choose_model(self):
+        raise AssertionError("empty final context must refuse before model selection")
+
+    monkeypatch.setattr("app.graph.OllamaClient.choose_chat_model", must_not_choose_model)
+    state = {
+        "question": "question",
+        "confidence": "high",
+        "citations": [
+            Citation(document_id="doc", document_name="doc", version=1, excerpt="   ", confidence=0.80),
+        ],
+    }
+
+    result = asyncio.run(answer(state))
+
+    assert result["status"] == "refused"
+    assert result["citations"] == []
+    assert result["confidence"] == "none"
+    assert result["reason"] == "empty_context"

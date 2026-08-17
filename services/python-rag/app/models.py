@@ -1,5 +1,5 @@
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Citation(BaseModel):
@@ -35,6 +35,13 @@ class ChunkInput(BaseModel):
     confidence: float = Field(default=1, ge=0, le=1)
     char_start: int | None = Field(default=None, ge=0)
     char_end: int | None = Field(default=None, ge=0)
+
+    @field_validator("text")
+    @classmethod
+    def text_must_contain_non_whitespace(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("chunk text must not be blank")
+        return value
 
 
 class IndexRequest(BaseModel):

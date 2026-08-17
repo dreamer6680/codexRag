@@ -51,17 +51,20 @@ async def refuse(state: RAGState) -> RAGState:
     return {
         "status": "refused",
         "answer": "现有知识库中没有足以支持该问题的可靠证据，因此我不能确认答案。",
+        "citations": [],
         "confidence": "none",
         "reason": state.get("reason") or "insufficient_evidence",
     }
 
 
 async def answer(state: RAGState) -> RAGState:
+    evidence, citations = ContextBuilder(settings.context_max_chars).build(state["citations"])
+    if not citations:
+        return await refuse({**state, "citations": [], "reason": "empty_context"})
     client = OllamaClient()
     model, error = await client.choose_chat_model()
     if not model:
         return {"status": "unavailable", "answer": "本地模型当前不可用。", "reason": error or "ollama_unavailable"}
-    evidence, citations = ContextBuilder(settings.context_max_chars).build(state["citations"])
     confidence = EvidencePolicy(
         min_score=settings.retrieval_min_evidence_score,
         max_evidence=settings.retrieval_max_evidence,

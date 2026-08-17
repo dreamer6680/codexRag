@@ -19,6 +19,9 @@ class FakeCatalog:
     def upsert(self, record):
         self.records[record.document_id] = record
 
+    def get(self, document_id):
+        return self.records.get(document_id)
+
 
 def test_index_registers_a_queryable_document_and_replayable_text(monkeypatch):
     storage = FakeStorage()
@@ -47,3 +50,59 @@ def test_index_registers_a_queryable_document_and_replayable_text(monkeypatch):
     assert record.version == 2
     assert record.parser == "api-index"
     assert storage.objects[record.markdown_object_key][0] == b"first chunk\n\nsecond chunk"
+
+
+def test_index_rejects_blank_chunks(monkeypatch):
+    storage = FakeStorage()
+    catalog = FakeCatalog()
+
+    async def must_not_index(self, request):
+        raise AssertionError("blank chunks must fail validation before indexing")
+
+    monkeypatch.setattr("app.main.object_storage", storage)
+    monkeypatch.setattr("app.main.document_catalog", catalog)
+    monkeypatch.setattr(VectorStore, "index", must_not_index)
+
+    response = TestClient(app).post(
+        "/rag/index",
+        json={
+            "document_id": "blank-doc",
+            "document_name": "blank.md",
+            "version": 1,
+            "chunks": [{"text": "   "}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert storage.objects == {}
+    assert catalog.records == {}
+
+
+def test_index_requires_a_strictly_newer_document_version(monkeypatch):
+    storage = FakeStorage()
+    catalog = FakeCatalog()
+
+    class ExistingRecord:
+        version = 2
+
+    catalog.records["doc-indexed"] = ExistingRecord()
+
+    async def must_not_index(self, request):
+        raise AssertionError("same version must be rejected before Qdrant upsert")
+
+    monkeypatch.setattr("app.main.object_storage", storage)
+    monkeypatch.setattr("app.main.document_catalog", catalog)
+    monkeypatch.setattr(VectorStore, "index", must_not_index)
+
+    response = TestClient(app).post(
+        "/rag/index",
+        json={
+            "document_id": "doc-indexed",
+            "document_name": "indexed.md",
+            "version": 2,
+            "chunks": [{"text": "replacement"}],
+        },
+    )
+
+    assert response.status_code == 409
+    assert storage.objects == {}

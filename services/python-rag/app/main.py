@@ -70,6 +70,9 @@ async def query(payload: QueryRequest):
 
 @app.post("/rag/index")
 async def index(payload: IndexRequest):
+    existing = document_catalog.get(payload.document_id)
+    if existing and payload.version <= existing.version:
+        raise HTTPException(409, "文档版本必须严格递增")
     count = await VectorStore().index(payload)
     content = "\n\n".join(chunk.text for chunk in payload.chunks)
     original_key = f"documents/{payload.document_id}/v{payload.version}/original/{payload.document_name}"
