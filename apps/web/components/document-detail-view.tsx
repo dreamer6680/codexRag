@@ -69,7 +69,7 @@ export function DocumentDetailView({ detail, onBack }: { detail: DocumentDetail 
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">{detail.document_name}</h1>
           <p className="mt-2 text-sm text-zinc-500">v{detail.version} · {detail.parser}</p>
         </div>
-        <Badge className={detail.status === "ready" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}>
+        <Badge className={`self-start ${detail.status === "ready" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
           {detail.status === "ready" ? "已就绪" : "索引失败"}
         </Badge>
       </div>
