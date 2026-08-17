@@ -1,8 +1,17 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=REPOSITORY_ROOT / ".env.local",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
     ollama_base_url: str = "http://localhost:11434"
     chat_model: str = "gemma3:latest"
     fallback_chat_model: str = "gemma3:latest"

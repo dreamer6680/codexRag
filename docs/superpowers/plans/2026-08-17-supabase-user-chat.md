@@ -220,7 +220,7 @@ def test_require_user_rejects_missing_subject(monkeypatch):
 - Test: all Python and web test suites
 
 **Interfaces:**
-- Documents exact required values: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, and `SUPABASE_JWT_AUDIENCE=authenticated`.
+- Documents exact required values: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, and `SUPABASE_JWT_AUDIENCE=authenticated`.
 
 - [ ] **Step 1: Document Supabase email-auth setup, local SQL migration execution, legacy-data isolation, and required environment values without including secrets**
 - [ ] **Step 2: Ensure container and local startup pass the same Supabase verification settings to the web and RAG services**

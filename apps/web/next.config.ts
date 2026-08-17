@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
+  outputFileTracingRoot: process.cwd(),
   // Standalone tracing creates pnpm symlinks that require elevated Windows
   // privileges. Docker builds run on Linux and can keep the compact output.
   output: process.platform === "win32" ? undefined : "standalone",

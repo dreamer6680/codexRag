@@ -1,7 +1,6 @@
+import asyncio
 from types import SimpleNamespace
 from uuid import UUID
-
-import pytest
 
 from app.vector_store import VectorStore
 
@@ -23,23 +22,21 @@ class FakeQdrant:
         return SimpleNamespace(points=[])
 
 
-@pytest.mark.asyncio
-async def test_search_always_filters_vectors_by_owner():
+def test_search_always_filters_vectors_by_owner():
     store = VectorStore(embedding=FakeEmbedding())
     store.client = FakeQdrant()
 
-    assert await store.search("question", OWNER) == []
+    assert asyncio.run(store.search("question", OWNER)) == []
 
     conditions = store.client.query_filter.must
     assert any(item.key == "owner_id" and item.match.value == str(OWNER) for item in conditions)
 
 
-@pytest.mark.asyncio
-async def test_search_combines_owner_and_selected_documents():
+def test_search_combines_owner_and_selected_documents():
     store = VectorStore(embedding=FakeEmbedding())
     store.client = FakeQdrant()
 
-    await store.search("question", OWNER, ["doc-a", "doc-b"])
+    asyncio.run(store.search("question", OWNER, ["doc-a", "doc-b"]))
 
     conditions = store.client.query_filter.must
     assert any(item.key == "owner_id" for item in conditions)

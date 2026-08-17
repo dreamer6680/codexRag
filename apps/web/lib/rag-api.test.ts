@@ -38,4 +38,5 @@ describe("authenticated RAG gateway", () => {
     expect(response.headers.get("content-type")).toBe("application/pdf");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
   });
+
 });

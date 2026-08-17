@@ -18,7 +18,7 @@ python start_rag.py --with-infra
 完整前后端环境：
 
 1. 复制 `.env.example` 为 `.env`，并设置强 JWT 密钥及数据库密码。
-2. 启动：`docker compose up --build`。
+2. 启动：`docker compose --env-file .env.local up --build`。
 3. 在本机 Ollama 中下载模型（首次且网络可用时）：
 
 ```powershell
@@ -36,7 +36,7 @@ ollama pull qllama/bge-reranker-v2-m3
 
 ```dotenv
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_JWT_AUDIENCE=authenticated
 ```
