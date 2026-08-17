@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processPdf } from "@firecrawl/pdf-inspector";
+import { ragFetch } from "@/lib/rag-api";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  const upstream = process.env.RAG_API_URL ?? "http://localhost:8001";
   try {
     const form = await request.formData();
     const file = form.get("file");
@@ -50,10 +50,9 @@ export async function POST(request: NextRequest) {
       upstreamForm.append("page_count", String(inspection.page_count));
       upstreamForm.append("pdf_type", inspection.pdf_type);
     }
-    const response = await fetch(`${upstream}/rag/upload`, {
+    const response = await ragFetch("/rag/upload", {
       method: "POST",
       body: upstreamForm,
-      cache: "no-store",
     });
     const payload = await response.json().catch(() => ({ detail: "上传服务返回了无效响应" }));
     return NextResponse.json(

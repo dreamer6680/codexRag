@@ -30,6 +30,28 @@ ollama pull qllama/bge-reranker-v2-m3
 
 4. 打开 `http://localhost:3000`。所有端口均绑定到 `127.0.0.1`。
 
+## 用户登录与个人数据隔离
+
+应用使用 Supabase Auth 提供邮箱密码注册、登录、会话刷新和退出；Supabase 不保存文档或聊天业务数据。请在 Supabase 项目中启用 Email provider，并在 `.env` 中配置：
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_JWT_AUDIENCE=authenticated
+```
+
+RAG API 会使用 Supabase JWKS 再次验证访问令牌。令牌的 `sub` 是本地数据唯一的所有者 ID：
+
+- 本地 PostgreSQL 保存用户映射、文档元数据、聊天、消息、滚动摘要和会话文档范围。
+- MinIO 对象键以 `users/{user_id}/documents/` 开头。
+- Qdrant 向量 payload 保存 `owner_id`，每次检索都强制按该字段过滤。
+- 不属于当前用户的文档或会话统一返回 404，未登录 API 返回 401。
+
+首次访问受保护接口时，服务会自动执行 `services/python-rag/migrations/001_user_chat.sql`。迁移前没有 `owner_id` 的旧文档会保留为不可见数据，不会自动归属给任何新用户；开发环境可清理旧数据后重新上传。
+
+聊天默认检索当前用户的全部已就绪文档，也可为每个会话选择文档子集。上下文保留最近 6 轮原文，更早内容压缩为滚动摘要，并保存每条回答当时使用的引用快照。
+
 ## 开发模式
 
 - 前端：`cd apps/web; npm install; npm run dev`

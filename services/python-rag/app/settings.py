@@ -4,8 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     ollama_base_url: str = "http://localhost:11434"
-    chat_model: str = "qwen3:14b"
-    fallback_chat_model: str = "qwen3:8b"
+    chat_model: str = "gemma3:latest"
+    fallback_chat_model: str = "gemma3:latest"
     embedding_model: str = "bge-m3"
     rerank_model: str = "qllama/bge-reranker-v2-m3"
     qdrant_url: str = "http://localhost:6333"
@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     retrieval_score_threshold: float = 0.35
     context_max_chars: int = 12000
     max_upload_mb: int = 50
+    supabase_url: str = ""
+    supabase_jwt_audience: str = "authenticated"
 
 
 settings = Settings()

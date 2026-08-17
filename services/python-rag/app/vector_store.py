@@ -1,4 +1,5 @@
 from uuid import uuid5, NAMESPACE_URL
+from uuid import UUID
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchAny, MatchValue, PointStruct, VectorParams
 from .models import Citation, DocumentChunkDetail, IndexRequest
@@ -18,18 +19,23 @@ class VectorStore:
             self.client.create_collection(COLLECTION, vectors_config=VectorParams(size=dimension, distance=Distance.COSINE))
 
     async def index(self, request: IndexRequest) -> int:
+        if request.owner_id is None:
+            raise ValueError("owner_id is required for vector indexing")
         vectors = await self.embedding.embed([chunk.text for chunk in request.chunks])
         self.ensure_collection(len(vectors[0]))
         points = [PointStruct(id=str(uuid5(NAMESPACE_URL, f"{request.document_id}:{request.version}:{i}")), vector=vector, payload={
-            "document_id": request.document_id, "document_name": request.document_name, "version": request.version,
+            "owner_id": str(request.owner_id), "document_id": request.document_id, "document_name": request.document_name, "version": request.version,
             "chunk_index": i, "page": chunk.page, "section": chunk.section, "text": chunk.text,
             "confidence": chunk.confidence, "char_start": chunk.char_start, "char_end": chunk.char_end,
         }) for i, (chunk, vector) in enumerate(zip(request.chunks, vectors))]
         self.client.upsert(COLLECTION, points=points, wait=True)
         return len(points)
 
-    def chunks_for_document(self, document_id: str, version: int | None = None) -> list[DocumentChunkDetail]:
-        must = [FieldCondition(key="document_id", match=MatchValue(value=document_id))]
+    def chunks_for_document(self, document_id: str, owner_id: UUID, version: int | None = None) -> list[DocumentChunkDetail]:
+        must = [
+            FieldCondition(key="owner_id", match=MatchValue(value=str(owner_id))),
+            FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+        ]
         if version is not None:
             must.append(FieldCondition(key="version", match=MatchValue(value=version)))
         points, _ = self.client.scroll(
@@ -53,9 +59,12 @@ class VectorStore:
             for index, point in enumerate(rows)
         ]
 
-    async def search(self, question: str, document_ids: list[str] | None = None) -> list[Citation]:
+    async def search(self, question: str, owner_id: UUID, document_ids: list[str] | None = None) -> list[Citation]:
         vector = (await self.embedding.embed([question]))[0]
-        query_filter = Filter(must=[FieldCondition(key="document_id", match=MatchAny(any=document_ids))]) if document_ids else None
+        must = [FieldCondition(key="owner_id", match=MatchValue(value=str(owner_id)))]
+        if document_ids:
+            must.append(FieldCondition(key="document_id", match=MatchAny(any=document_ids)))
+        query_filter = Filter(must=must)
         hits = self.client.query_points(
             COLLECTION,
             query=vector,

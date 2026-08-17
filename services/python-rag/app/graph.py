@@ -1,5 +1,6 @@
 """Evidence-first LangGraph pipeline. Retrieval is intentionally injectable for tests."""
 from typing import TypedDict
+from uuid import UUID
 from langgraph.graph import END, START, StateGraph
 from .models import Citation, QueryResponse
 from .ollama import OllamaClient
@@ -10,6 +11,7 @@ from .settings import settings
 
 class RAGState(TypedDict, total=False):
     question: str
+    owner_id: UUID
     document_ids: list[str]
     citations: list[Citation]
     answer: str
@@ -17,13 +19,18 @@ class RAGState(TypedDict, total=False):
     reason: str
     model: str
     strategy: str
+    retrieval_query: str
+    prompt_history: str
 
 
 async def retrieve(state: RAGState) -> RAGState:
     # Low-confidence/OCR-uncertain chunks are filtered by the store before evidence gating.
     try:
         citations = await MultiStrategyRetriever().retrieve(
-            state["question"], state.get("document_ids"), state.get("strategy")
+            state.get("retrieval_query") or state["question"],
+            state["owner_id"],
+            state.get("document_ids"),
+            state.get("strategy"),
         )
         return {"citations": citations}
     except Exception:
@@ -44,9 +51,16 @@ async def answer(state: RAGState) -> RAGState:
     model, error = await client.choose_chat_model()
     if not model:
         return {"status": "unavailable", "answer": "本地模型当前不可用。", "reason": error or "ollama_unavailable"}
-    evidence, citations = ContextBuilder(settings.context_max_chars).build(state["citations"])
+    # Reserve half of the configured prompt budget for ranked evidence. The
+    # remaining space is shared by recent conversation, summary and output.
+    evidence, citations = ContextBuilder(max(1000, settings.context_max_chars // 2)).build(state["citations"])
     system = "你是严格的本地知识库助手。只能根据给定证据回答；不能补充外部知识；每项结论都要标记 [编号]。"
-    text = await client.chat(model, system, f"问题：{state['question']}\n\n证据：\n{evidence}")
+    history = state.get("prompt_history", "").strip()
+    prompt = ""
+    if history:
+        prompt += f"对话上下文：\n{history}\n\n"
+    prompt += f"当前问题：{state['question']}\n\n证据：\n{evidence}"
+    text = await client.chat(model, system, prompt)
     return {"status": "answered", "answer": text, "citations": citations, "model": model, "reason": error}
 
 
@@ -72,10 +86,20 @@ def build_graph():
 
 async def run_query(
     question: str,
+    owner_id: UUID,
     document_ids: list[str] | None = None,
     strategy: str | None = None,
+    retrieval_query: str | None = None,
+    prompt_history: str | None = None,
 ) -> QueryResponse:
     result = await build_graph().ainvoke(
-        {"question": question, "document_ids": document_ids or [], "strategy": strategy or settings.retrieval_strategy}
+        {
+            "question": question,
+            "owner_id": owner_id,
+            "document_ids": document_ids or [],
+            "strategy": strategy or settings.retrieval_strategy,
+            "retrieval_query": retrieval_query or question,
+            "prompt_history": prompt_history or "",
+        }
     )
     return QueryResponse(status=result["status"], answer=result["answer"], citations=result.get("citations", []), model=result.get("model"), reason=result.get("reason"))

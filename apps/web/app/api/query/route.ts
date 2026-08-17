@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { ragFetch } from "@/lib/rag-api";
 export async function POST(request: NextRequest) {
-  const payload = await request.json();
-  const upstream = process.env.RAG_API_URL ?? "http://localhost:8001";
-  try {
-    const response = await fetch(`${upstream}/rag/query`, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(payload), cache:"no-store" });
-    return NextResponse.json(await response.json(), {status:response.status});
-  } catch { return NextResponse.json({status:"unavailable",answer:"本地 RAG 服务未启动。",citations:[]},{status:503}); }
+  return ragFetch("/rag/query", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(await request.json()),
+  });
 }

@@ -1,4 +1,6 @@
+from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 from pydantic import BaseModel, Field
 
 
@@ -14,7 +16,7 @@ class Citation(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
-    document_ids: list[str] = []
+    document_ids: list[str] = Field(default_factory=list)
     conversation_id: str | None = None
     strategy: Literal["vector", "mqe", "hyde", "hybrid"] | None = None
 
@@ -22,7 +24,7 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     status: Literal["answered", "refused", "unavailable"]
     answer: str
-    citations: list[Citation] = []
+    citations: list[Citation] = Field(default_factory=list)
     model: str | None = None
     reason: str | None = None
 
@@ -37,6 +39,7 @@ class ChunkInput(BaseModel):
 
 
 class IndexRequest(BaseModel):
+    owner_id: UUID | None = None
     document_id: str
     document_name: str
     version: int = Field(ge=1)
@@ -69,6 +72,7 @@ class UploadResponse(BaseModel):
 
 
 class DocumentRecord(BaseModel):
+    owner_id: UUID | None = None
     document_id: str
     document_name: str
     version: int
@@ -102,3 +106,51 @@ class Document(BaseModel):
     content: str
     version: int = Field(default=1, ge=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationSummary(BaseModel):
+    id: UUID
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatMessage(BaseModel):
+    id: UUID
+    conversation_id: UUID
+    role: Literal["user", "assistant"]
+    content: str
+    status: Literal["pending", "completed", "failed"]
+    citations: list[Citation] = Field(default_factory=list)
+    error: str | None = None
+    created_at: datetime
+
+
+class ConversationDetail(ConversationSummary):
+    summary: str = ""
+    summarized_through_message_id: UUID | None = None
+    selected_document_ids: list[str] = Field(default_factory=list)
+    messages: list[ChatMessage] = Field(default_factory=list)
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationSummary]
+
+
+class CreateConversationRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+
+
+class UpdateConversationRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    document_ids: list[str] | None = None
+
+
+class SendMessageRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+
+
+class SendMessageResponse(BaseModel):
+    conversation: ConversationSummary
+    user_message: ChatMessage
+    assistant_message: ChatMessage

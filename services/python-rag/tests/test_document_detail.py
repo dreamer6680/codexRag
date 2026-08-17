@@ -1,7 +1,12 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.auth import AuthenticatedUser, require_user
 from app.vector_store import VectorStore
+from uuid import UUID
+
+
+USER = AuthenticatedUser(id=UUID("11111111-1111-1111-1111-111111111111"), email="reader@example.com")
 
 
 class FakeStorage:
@@ -22,14 +27,19 @@ class FakeCatalog:
     def __init__(self):
         self.records = {}
 
-    def upsert(self, record):
+    def upsert_user(self, user):
+        assert user == USER
+
+    def upsert(self, record, owner_id):
+        assert owner_id == USER.id
         self.records[record.document_id] = record
 
-    def list_documents(self):
+    def list_documents(self, owner_id):
         return list(self.records.values())
 
-    def get(self, document_id):
-        return self.records.get(document_id)
+    def get(self, document_id, owner_id):
+        record = self.records.get(document_id)
+        return record if record and owner_id == USER.id else None
 
 
 def test_upload_persists_artifacts_and_detail(monkeypatch):
@@ -40,7 +50,8 @@ def test_upload_persists_artifacts_and_detail(monkeypatch):
         self.last_request = request
         return len(request.chunks)
 
-    def fake_chunks_for_document(self, document_id, version=None):
+    def fake_chunks_for_document(self, document_id, owner_id, version=None):
+        assert owner_id == USER.id
         return [
             {
                 "index": 0,
@@ -57,6 +68,7 @@ def test_upload_persists_artifacts_and_detail(monkeypatch):
     monkeypatch.setattr("app.main.document_catalog", catalog)
     monkeypatch.setattr(VectorStore, "index", fake_index)
     monkeypatch.setattr(VectorStore, "chunks_for_document", fake_chunks_for_document)
+    app.dependency_overrides[require_user] = lambda: USER
 
     client = TestClient(app)
     upload = client.post(
@@ -73,4 +85,4 @@ def test_upload_persists_artifacts_and_detail(monkeypatch):
     assert payload["document_name"] == "notes.md"
     assert payload["markdown"] == "# Hello RAG"
     assert payload["chunks"][0]["text"] == "# Hello RAG"
-    assert storage.objects[f"documents/{document_id}/v1/parsed.md"][0] == b"# Hello RAG"
+    assert storage.objects[f"users/{USER.id}/documents/{document_id}/v1/parsed.md"][0] == b"# Hello RAG"

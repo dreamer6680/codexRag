@@ -1,4 +1,5 @@
 """Vector, MQE, HyDE and hybrid retrieval with reciprocal-rank fusion."""
+from uuid import UUID
 from .models import Citation
 from .ollama import OllamaClient
 from .settings import settings
@@ -45,6 +46,7 @@ class MultiStrategyRetriever:
     async def retrieve(
         self,
         question: str,
+        owner_id: UUID,
         document_ids: list[str] | None = None,
         strategy: str | None = None,
     ) -> list[Citation]:
@@ -59,7 +61,7 @@ class MultiStrategyRetriever:
             # Query enhancement is optional; base vector retrieval remains available.
             pass
 
-        ranked_lists = [await self.store.search(query, document_ids) for query in queries]
+        ranked_lists = [await self.store.search(query, owner_id, document_ids) for query in queries]
         scores: dict[tuple[str, int, int | None, str | None, str], float] = {}
         items: dict[tuple[str, int, int | None, str | None, str], Citation] = {}
         for ranked in ranked_lists:
