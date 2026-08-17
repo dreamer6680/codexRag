@@ -15,12 +15,29 @@ class FakeStorage:
 class FakeCatalog:
     def __init__(self):
         self.records = {}
+        self.reserved = set()
 
     def upsert(self, record):
         self.records[record.document_id] = record
 
     def get(self, document_id):
         return self.records.get(document_id)
+
+    def reserve_index_version(self, document_id, document_name, version):
+        existing = self.records.get(document_id)
+        if existing and existing.version >= version:
+            return False
+        self.reserved.add((document_id, version))
+        return True
+
+    def finalize_index(self, record):
+        if (record.document_id, record.version) not in self.reserved:
+            return False
+        self.records[record.document_id] = record
+        return True
+
+    def mark_index_failed(self, document_id, version):
+        pass
 
 
 def test_index_registers_a_queryable_document_and_replayable_text(monkeypatch):
@@ -89,6 +106,36 @@ def test_index_requires_a_strictly_newer_document_version(monkeypatch):
 
     async def must_not_index(self, request):
         raise AssertionError("same version must be rejected before Qdrant upsert")
+
+    monkeypatch.setattr("app.main.object_storage", storage)
+    monkeypatch.setattr("app.main.document_catalog", catalog)
+    monkeypatch.setattr(VectorStore, "index", must_not_index)
+
+    response = TestClient(app).post(
+        "/rag/index",
+        json={
+            "document_id": "doc-indexed",
+            "document_name": "indexed.md",
+            "version": 2,
+            "chunks": [{"text": "replacement"}],
+        },
+    )
+
+    assert response.status_code == 409
+    assert storage.objects == {}
+
+
+def test_index_uses_atomic_reservation_before_qdrant(monkeypatch):
+    storage = FakeStorage()
+
+    class RejectedReservationCatalog(FakeCatalog):
+        def reserve_index_version(self, document_id, document_name, version):
+            return False
+
+    catalog = RejectedReservationCatalog()
+
+    async def must_not_index(self, request):
+        raise AssertionError("rejected reservation must not reach Qdrant")
 
     monkeypatch.setattr("app.main.object_storage", storage)
     monkeypatch.setattr("app.main.document_catalog", catalog)

@@ -82,7 +82,7 @@ class DocumentRecord(BaseModel):
     version: int
     content_type: str | None = None
     parser: str
-    status: Literal["ready", "index_failed"] = "ready"
+    status: Literal["indexing", "ready", "index_failed"] = "ready"
     page_count: int | None = None
     pdf_type: str | None = None
     chunk_count: int

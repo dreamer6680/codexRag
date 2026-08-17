@@ -70,18 +70,20 @@ async def query(payload: QueryRequest):
 
 @app.post("/rag/index")
 async def index(payload: IndexRequest):
-    existing = document_catalog.get(payload.document_id)
-    if existing and payload.version <= existing.version:
+    reserved = document_catalog.reserve_index_version(
+        payload.document_id, payload.document_name, payload.version
+    )
+    if not reserved:
         raise HTTPException(409, "文档版本必须严格递增")
-    count = await VectorStore().index(payload)
-    content = "\n\n".join(chunk.text for chunk in payload.chunks)
-    original_key = f"documents/{payload.document_id}/v{payload.version}/original/{payload.document_name}"
-    markdown_key = f"documents/{payload.document_id}/v{payload.version}/parsed.md"
-    object_storage.put_bytes(original_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
-    object_storage.put_bytes(markdown_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
-    pages = {chunk.page for chunk in payload.chunks if chunk.page is not None}
-    document_catalog.upsert(
-        DocumentRecord(
+    try:
+        count = await VectorStore().index(payload)
+        content = "\n\n".join(chunk.text for chunk in payload.chunks)
+        original_key = f"documents/{payload.document_id}/v{payload.version}/original/{payload.document_name}"
+        markdown_key = f"documents/{payload.document_id}/v{payload.version}/parsed.md"
+        object_storage.put_bytes(original_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
+        object_storage.put_bytes(markdown_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
+        pages = {chunk.page for chunk in payload.chunks if chunk.page is not None}
+        record = DocumentRecord(
             document_id=payload.document_id,
             document_name=payload.document_name,
             version=payload.version,
@@ -92,7 +94,11 @@ async def index(payload: IndexRequest):
             original_object_key=original_key,
             markdown_object_key=markdown_key,
         )
-    )
+        if not document_catalog.finalize_index(record):
+            raise HTTPException(409, "文档版本已被更新的索引请求取代")
+    except Exception:
+        document_catalog.mark_index_failed(payload.document_id, payload.version)
+        raise
     return {"document_id": payload.document_id, "version": payload.version, "indexed_chunks": count}
 
 
