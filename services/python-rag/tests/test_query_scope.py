@@ -73,10 +73,10 @@ def test_query_excludes_requested_documents_that_are_not_active(monkeypatch):
 def test_query_fails_closed_when_catalog_is_unavailable(monkeypatch):
     class BrokenCatalog:
         def upsert_user(self, user):
-            pass
+            raise RuntimeError("postgres offline during user upsert")
 
         def ready_document_scopes(self, owner_id, document_ids=None):
-            raise RuntimeError("postgres offline")
+            raise AssertionError("user upsert failure must already be handled")
 
     monkeypatch.setattr("app.main.document_catalog", BrokenCatalog())
 

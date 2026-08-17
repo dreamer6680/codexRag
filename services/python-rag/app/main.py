@@ -63,9 +63,13 @@ async def health():
 
 @app.post("/rag/query", response_model=QueryResponse)
 async def query(payload: QueryRequest, user: AuthenticatedUser = Depends(require_user)):
-    document_catalog.upsert_user(user)
     try:
+        document_catalog.upsert_user(user)
         document_catalog.ready_document_scopes(user.id, payload.document_ids)
+        missing_document = any(
+            not document_catalog.get(document_id, user.id)
+            for document_id in payload.document_ids
+        )
     except Exception:
         return QueryResponse(
             status="unavailable",
@@ -73,9 +77,8 @@ async def query(payload: QueryRequest, user: AuthenticatedUser = Depends(require
             confidence="none",
             reason="catalog_unavailable",
         )
-    for document_id in payload.document_ids:
-        if not document_catalog.get(document_id, user.id):
-            raise HTTPException(404, "Document not found")
+    if missing_document:
+        raise HTTPException(404, "Document not found")
     return await run_query(payload.question, user.id, payload.document_ids, payload.strategy)
 
 
