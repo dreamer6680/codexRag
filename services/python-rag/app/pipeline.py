@@ -1,4 +1,5 @@
 """End-to-end facade for document ingestion and retrieval."""
+from uuid import UUID
 from .document_processor import DocumentProcessor
 from .models import Citation, Document
 from .retrieval import MultiStrategyRetriever
@@ -23,7 +24,8 @@ class RAGPipeline:
     async def retrieve(
         self,
         question: str,
-        document_scope: list[tuple[str, int]] | None = None,
+        owner_id: UUID,
+        document_ids: list[str] | None = None,
         strategy: str | None = None,
     ) -> list[Citation]:
-        return await self.retriever.retrieve(question, document_scope, strategy)
+        return await self.retriever.retrieve(question, owner_id, document_ids, strategy)

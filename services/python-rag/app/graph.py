@@ -1,5 +1,6 @@
 """Evidence-first LangGraph pipeline. Retrieval is intentionally injectable for tests."""
 from typing import TypedDict
+from uuid import UUID
 from langgraph.graph import END, START, StateGraph
 from .models import Citation, QueryResponse
 from .ollama import OllamaClient
@@ -11,7 +12,8 @@ from .settings import settings
 
 class RAGState(TypedDict, total=False):
     question: str
-    document_scope: list[tuple[str, int]]
+    owner_id: UUID
+    document_ids: list[str]
     citations: list[Citation]
     answer: str
     status: str
@@ -19,13 +21,18 @@ class RAGState(TypedDict, total=False):
     model: str
     strategy: str
     confidence: str
+    retrieval_query: str
+    prompt_history: str
 
 
 async def retrieve(state: RAGState) -> RAGState:
     # Low-confidence/OCR-uncertain chunks are filtered by the store before evidence gating.
     try:
         candidates = await MultiStrategyRetriever().retrieve(
-            state["question"], state.get("document_scope"), state.get("strategy")
+            state.get("retrieval_query") or state["question"],
+            state["owner_id"],
+            state.get("document_ids"),
+            state.get("strategy"),
         )
         decision = EvidencePolicy(
             min_score=settings.retrieval_min_evidence_score,
@@ -58,13 +65,15 @@ async def refuse(state: RAGState) -> RAGState:
 
 
 async def answer(state: RAGState) -> RAGState:
-    evidence, citations = ContextBuilder(settings.context_max_chars).build(state["citations"])
+    # Reserve half of the configured prompt budget for ranked evidence. The
+    # remaining space is shared by recent conversation, summary and output.
+    evidence, citations = ContextBuilder(max(1000, settings.context_max_chars // 2)).build(state["citations"])
     if not citations:
         return await refuse({**state, "citations": [], "reason": "empty_context"})
     client = OllamaClient()
     model, error = await client.choose_chat_model()
     if not model:
-        return {"status": "unavailable", "answer": "本地模型当前不可用。", "reason": error or "ollama_unavailable"}
+        return {"status": "unavailable", "answer": "本地模型当前不可用。", "confidence": "none", "reason": error or "ollama_unavailable"}
     confidence = EvidencePolicy(
         min_score=settings.retrieval_min_evidence_score,
         max_evidence=settings.retrieval_max_evidence,
@@ -72,15 +81,13 @@ async def answer(state: RAGState) -> RAGState:
         high_score=settings.retrieval_high_confidence_score,
     ).confidence_for(citations)
     system = "你是严格的本地知识库助手。只能根据给定证据回答；不能补充外部知识；每项结论都要标记 [编号]。"
-    text = await client.chat(model, system, f"问题：{state['question']}\n\n证据：\n{evidence}")
-    return {
-        "status": "answered",
-        "answer": text,
-        "citations": citations,
-        "confidence": confidence,
-        "model": model,
-        "reason": error,
-    }
+    history = state.get("prompt_history", "").strip()
+    prompt = ""
+    if history:
+        prompt += f"对话上下文：\n{history}\n\n"
+    prompt += f"当前问题：{state['question']}\n\n证据：\n{evidence}"
+    text = await client.chat(model, system, prompt)
+    return {"status": "answered", "answer": text, "citations": citations, "confidence": confidence, "model": model, "reason": error}
 
 
 def build_graph():
@@ -105,11 +112,21 @@ def build_graph():
 
 async def run_query(
     question: str,
-    document_scope: list[tuple[str, int]] | None = None,
+    owner_id: UUID,
+    document_ids: list[str] | None = None,
     strategy: str | None = None,
+    retrieval_query: str | None = None,
+    prompt_history: str | None = None,
 ) -> QueryResponse:
     result = await build_graph().ainvoke(
-        {"question": question, "document_scope": document_scope or [], "strategy": strategy or settings.retrieval_strategy}
+        {
+            "question": question,
+            "owner_id": owner_id,
+            "document_ids": document_ids or [],
+            "strategy": strategy or settings.retrieval_strategy,
+            "retrieval_query": retrieval_query or question,
+            "prompt_history": prompt_history or "",
+        }
     )
     return QueryResponse(
         status=result["status"],

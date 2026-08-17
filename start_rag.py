@@ -11,7 +11,16 @@ ROOT = Path(__file__).resolve().parent
 SERVICE_DIR = ROOT / "services" / "python-rag"
 REQUIREMENTS = SERVICE_DIR / "requirements.txt"
 VENV_DIR = SERVICE_DIR / ".venv"
-REQUIRED_MODULES = ("fastapi", "uvicorn", "httpx", "langgraph", "qdrant_client", "multipart")
+REQUIRED_MODULES = (
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "langgraph",
+    "qdrant_client",
+    "multipart",
+    "jwt",
+    "cryptography",
+)
 
 
 def run(command: list[str], cwd: Path = ROOT) -> None:
@@ -53,7 +62,20 @@ def main() -> None:
 
     if args.with_infra:
         print("Starting RAG infrastructure...")
-        run(["docker", "compose", "up", "-d", "qdrant", "mineru", "minio", "postgres"])
+        run(
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                ".env.local",
+                "up",
+                "-d",
+                "qdrant",
+                "mineru",
+                "minio",
+                "postgres",
+            ]
+        )
     python = ensure_dependencies(args.install)
 
     command = [

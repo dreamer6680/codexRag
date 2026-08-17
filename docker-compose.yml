@@ -75,6 +75,8 @@ services:
       MINIO_SECURE: "false"
       POSTGRES_DSN: postgresql://localrag:${POSTGRES_PASSWORD:-localrag-change-me}@postgres:5432/rag_state
       JAVA_CORE_URL: http://core-api:8080
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on: [qdrant, postgres, mineru]
@@ -91,10 +93,16 @@ services:
     ports: ["127.0.0.1:8080:8080"]
 
   web:
-    build: ./apps/web
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
     environment:
       CORE_API_URL: http://core-api:8080
       RAG_API_URL: http://rag-api:8001
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
     depends_on: [core-api, rag-api]
     ports: ["127.0.0.1:3000:3000"]
 

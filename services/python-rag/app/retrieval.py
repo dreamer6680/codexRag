@@ -1,4 +1,6 @@
 """Vector, MQE, HyDE and hybrid retrieval with reciprocal-rank fusion."""
+from uuid import UUID
+from .document_catalog import DocumentCatalog
 from .models import Citation
 from .ollama import OllamaClient
 from .settings import settings
@@ -20,9 +22,11 @@ class MultiStrategyRetriever:
         self,
         store: VectorStore | None = None,
         llm: OllamaClient | None = None,
+        catalog: DocumentCatalog | None = None,
     ) -> None:
         self.store = store or VectorStore()
         self.llm = llm or OllamaClient()
+        self.catalog = catalog or DocumentCatalog()
 
     async def _expand(self, question: str) -> list[str]:
         model, _ = await self.llm.choose_chat_model()
@@ -45,7 +49,8 @@ class MultiStrategyRetriever:
     async def retrieve(
         self,
         question: str,
-        document_scope: list[tuple[str, int]] | None = None,
+        owner_id: UUID,
+        document_ids: list[str] | None = None,
         strategy: str | None = None,
     ) -> list[Citation]:
         selected = strategy or settings.retrieval_strategy
@@ -59,7 +64,8 @@ class MultiStrategyRetriever:
             # Query enhancement is optional; base vector retrieval remains available.
             pass
 
-        ranked_lists = [await self.store.search(query, document_scope) for query in queries]
+        document_scope = self.catalog.ready_document_scopes(owner_id, document_ids)
+        ranked_lists = [await self.store.search(query, owner_id, document_scope) for query in queries]
         scores: dict[tuple[str, int, int | None, str | None, str], float] = {}
         items: dict[tuple[str, int, int | None, str | None, str], Citation] = {}
         for ranked in ranked_lists:

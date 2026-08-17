@@ -40,6 +40,18 @@ class OllamaClient:
             response.raise_for_status()
             return response.json()["message"]["content"]
 
+    async def summarize_conversation(self, existing_summary: str, transcript: str) -> str | None:
+        model, _ = await self.choose_chat_model()
+        if not model:
+            return None
+        prompt = (
+            "把下面对话压缩成不超过 1000 个中文字符的长期记忆。"
+            "只保留用户目标、已确认事实、约束、决定、未解决问题和提及的文档；删除寒暄和重复。\n\n"
+            f"已有摘要：\n{existing_summary or '无'}\n\n新增对话：\n{transcript}"
+        )
+        summary = await self.chat(model, "你负责维护准确、紧凑的会话记忆。", prompt)
+        return summary.strip()[:1000]
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(f"{self.base_url}/api/embed", json={"model": settings.embedding_model, "input": texts})
