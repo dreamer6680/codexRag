@@ -1,7 +1,7 @@
 from uuid import uuid5, NAMESPACE_URL
 from uuid import UUID
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchAny, MatchValue, PointStruct, VectorParams
+from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 from .models import Citation, DocumentChunkDetail, IndexRequest
 from .embeddings import BaseEmbedding, OllamaEmbedding
 from .settings import settings
@@ -59,12 +59,28 @@ class VectorStore:
             for index, point in enumerate(rows)
         ]
 
-    async def search(self, question: str, owner_id: UUID, document_ids: list[str] | None = None) -> list[Citation]:
+    async def search(
+        self,
+        question: str,
+        owner_id: UUID,
+        document_scope: list[tuple[str, int]] | None = None,
+    ) -> list[Citation]:
+        if document_scope is not None and not document_scope:
+            return []
         vector = (await self.embedding.embed([question]))[0]
         must = [FieldCondition(key="owner_id", match=MatchValue(value=str(owner_id)))]
-        if document_ids:
-            must.append(FieldCondition(key="document_id", match=MatchAny(any=document_ids)))
-        query_filter = Filter(must=must)
+        query_filter = Filter(
+            must=must,
+            should=[
+                Filter(
+                    must=[
+                        FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+                        FieldCondition(key="version", match=MatchValue(value=version)),
+                    ]
+                )
+                for document_id, version in document_scope
+            ] if document_scope is not None else None,
+        )
         hits = self.client.query_points(
             COLLECTION,
             query=vector,

@@ -28,6 +28,18 @@ ALTER TABLE rag_documents
 CREATE INDEX IF NOT EXISTS rag_documents_owner_updated_idx
     ON rag_documents (owner_id, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS rag_document_index_reservations (
+    document_id text PRIMARY KEY,
+    owner_id uuid NOT NULL REFERENCES app_users(id),
+    version integer NOT NULL,
+    status text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE rag_document_index_reservations
+    ADD COLUMN IF NOT EXISTS owner_id uuid REFERENCES app_users(id);
+
 CREATE OR REPLACE FUNCTION require_rag_document_owner()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -64,9 +76,13 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content text NOT NULL DEFAULT '',
     status text NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
     citations jsonb NOT NULL DEFAULT '[]'::jsonb,
+    confidence text NOT NULL DEFAULT 'none',
     error text,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE chat_messages
+    ADD COLUMN IF NOT EXISTS confidence text NOT NULL DEFAULT 'none';
 
 CREATE INDEX IF NOT EXISTS chat_messages_conversation_created_idx
     ON chat_messages (owner_id, conversation_id, created_at);

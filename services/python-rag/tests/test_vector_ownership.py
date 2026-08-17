@@ -32,12 +32,14 @@ def test_search_always_filters_vectors_by_owner():
     assert any(item.key == "owner_id" and item.match.value == str(OWNER) for item in conditions)
 
 
-def test_search_combines_owner_and_selected_documents():
+def test_search_combines_owner_and_active_document_versions():
     store = VectorStore(embedding=FakeEmbedding())
     store.client = FakeQdrant()
 
-    asyncio.run(store.search("question", OWNER, ["doc-a", "doc-b"]))
+    asyncio.run(store.search("question", OWNER, [("doc-a", 2), ("doc-b", 4)]))
 
     conditions = store.client.query_filter.must
     assert any(item.key == "owner_id" for item in conditions)
-    assert any(item.key == "document_id" and item.match.any == ["doc-a", "doc-b"] for item in conditions)
+    scopes = store.client.query_filter.should
+    assert scopes[0].must[0].match.value == "doc-a"
+    assert scopes[0].must[1].match.value == 2
