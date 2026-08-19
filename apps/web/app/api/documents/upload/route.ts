@@ -17,7 +17,6 @@ export async function POST(request: NextRequest) {
       confidence: number;
       pages_needing_ocr: number[];
     } | null = null;
-    let extractedMarkdown: string | null = null;
     if (file.name.toLowerCase().endsWith(".pdf")) {
       try {
         const result = processPdf(Buffer.from(await file.arrayBuffer()));
@@ -28,11 +27,6 @@ export async function POST(request: NextRequest) {
           // The package returns zero-based page indexes; expose human page numbers to the UI.
           pages_needing_ocr: result.pagesNeedingOcr.map(page => page + 1),
         };
-        // Text PDFs do not need OCR. Pass locally extracted Markdown to the
-        // RAG API so upload remains available even when MinerU is offline.
-        if (result.pdfType === "TextBased" && result.markdown?.trim()) {
-          extractedMarkdown = result.markdown;
-        }
       } catch {
         return NextResponse.json(
           { detail: "PDF Inspector 无法识别该文件，请确认它是未损坏的 PDF" },
@@ -42,10 +36,6 @@ export async function POST(request: NextRequest) {
     }
     const upstreamForm = new FormData();
     upstreamForm.append("file", file, file.name);
-    if (extractedMarkdown) {
-      upstreamForm.append("extracted_markdown", extractedMarkdown);
-      upstreamForm.append("parser", "pdf-inspector");
-    }
     if (inspection) {
       upstreamForm.append("page_count", String(inspection.page_count));
       upstreamForm.append("pdf_type", inspection.pdf_type);

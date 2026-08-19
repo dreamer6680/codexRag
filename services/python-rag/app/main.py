@@ -14,7 +14,7 @@ from fastapi.responses import Response
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from app.graph import run_query
-    from app.document_processor import DocumentProcessor
+    from app.ingestion import IngestionService
     from app.document_catalog import DocumentCatalog
     from app.models import DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, ServiceHealth, UploadResponse
     from app.object_storage import ObjectStorage
@@ -27,7 +27,7 @@ if __package__ in (None, ""):
     from app.models import ConversationDetail, ConversationListResponse, ConversationSummary, CreateConversationRequest, SendMessageRequest, SendMessageResponse, UpdateConversationRequest
 else:
     from .graph import run_query
-    from .document_processor import DocumentProcessor
+    from .ingestion import IngestionService
     from .document_catalog import DocumentCatalog
     from .models import DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, ServiceHealth, UploadResponse
     from .object_storage import ObjectStorage
@@ -122,8 +122,6 @@ async def index(payload: IndexRequest, user: AuthenticatedUser = Depends(require
 @app.post("/rag/upload", response_model=UploadResponse)
 async def upload(
     file: UploadFile = File(...),
-    extracted_markdown: str | None = Form(default=None),
-    parser: str | None = Form(default=None),
     page_count: int | None = Form(default=None),
     pdf_type: str | None = Form(default=None),
     user: AuthenticatedUser = Depends(require_user),
@@ -140,39 +138,27 @@ async def upload(
     if len(raw) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(413, f"文件不能超过 {settings.max_upload_mb} MB")
 
-    parser_used = "plain-text"
-    if suffix == ".pdf" and extracted_markdown and extracted_markdown.strip():
-        content = extracted_markdown
-        parser_used = parser or "pdf-inspector"
-    elif suffix == ".pdf":
-        try:
-            async with httpx.AsyncClient(timeout=900) as client:
-                response = await client.post(
-                    f"{settings.mineru_url.rstrip('/')}/parse",
-                    files={"file": (filename, raw, file.content_type or "application/pdf")},
-                )
-                response.raise_for_status()
-                content = response.json()["markdown"]
-                parser_used = "mineru"
-        except httpx.HTTPStatusError as exc:
-            detail = exc.response.text[-1000:]
-            raise HTTPException(422, f"MinerU 解析失败：{detail}") from exc
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
-            raise HTTPException(503, f"MinerU 服务不可用或返回无效结果：{exc}") from exc
-    else:
-        try:
-            content = raw.decode("utf-8-sig")
-        except UnicodeDecodeError as exc:
-            raise HTTPException(415, "TXT/Markdown 文件必须使用 UTF-8 编码") from exc
-
     document_id = str(uuid4())
     version = 1
     document_catalog.upsert_user(user)
     original_key = f"users/{user.id}/documents/{document_id}/v{version}/original/{filename}"
     markdown_key = f"users/{user.id}/documents/{document_id}/v{version}/parsed.md"
-    processor = DocumentProcessor()
-    document = processor.from_text(document_id, filename, content)
-    request = processor.to_index_request(document).model_copy(update={"owner_id": user.id})
+    try:
+        ingestion = await IngestionService().parse(
+            document_id,
+            filename,
+            raw,
+            file.content_type or "application/octet-stream",
+            pdf_type=pdf_type,
+            version=version,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(503, str(exc)) from exc
+    content = ingestion.markdown
+    parser_used = ingestion.parser
+    request = ingestion.request.model_copy(update={"owner_id": user.id})
     try:
         object_storage.put_bytes(original_key, raw, file.content_type or "application/octet-stream")
         object_storage.put_bytes(markdown_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
@@ -201,6 +187,7 @@ async def upload(
         version=version,
         indexed_chunks=count,
         parser=parser_used,
+        low_confidence_pages=ingestion.low_confidence_pages,
     )
 
 

@@ -4,6 +4,7 @@ from app.main import app
 from app.auth import AuthenticatedUser, require_user
 from app.vector_store import VectorStore
 from uuid import UUID
+import pymupdf
 
 
 USER = AuthenticatedUser(id=UUID("11111111-1111-1111-1111-111111111111"), email="reader@example.com")
@@ -52,27 +53,33 @@ def test_upload_text_chunks_and_indexes(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert response.json()["indexed_chunks"] == 1
-    assert response.json()["parser"] == "plain-text"
+    assert response.json()["parser"] == "markdown-structure"
     assert all(key.startswith(f"users/{USER.id}/documents/") for key in storage.keys)
 
 
-def test_upload_preparsed_pdf_does_not_require_mineru(monkeypatch):
+def test_upload_text_pdf_uses_raw_layout_without_mineru(monkeypatch):
     isolate_persistence(monkeypatch)
+
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=600, height=800)
+    page.insert_text((40, 60), "Extracted PDF", fontsize=18)
+    raw = pdf.tobytes()
+    pdf.close()
 
     async def fake_index(self, request):
         assert request.chunks[0].text == "Extracted PDF"
-        assert request.chunks[0].chunk_type == "heading"
+        assert request.chunks[0].chunk_type == "paragraph"
         return 1
 
     monkeypatch.setattr(VectorStore, "index", fake_index)
     response = TestClient(app).post(
         "/rag/upload",
-        files={"file": ("report.pdf", b"%PDF-placeholder", "application/pdf")},
-        data={"extracted_markdown": "# Extracted PDF", "parser": "pdf-inspector"},
+        files={"file": ("report.pdf", raw, "application/pdf")},
+        data={"pdf_type": "TextBased", "page_count": "1"},
     )
 
-    assert response.status_code == 200
-    assert response.json()["parser"] == "pdf-inspector"
+    assert response.status_code == 200, response.text
+    assert response.json()["parser"] == "pymupdf-layout"
 
 
 def test_upload_rejects_unsupported_format():

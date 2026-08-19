@@ -92,6 +92,7 @@ class UploadResponse(BaseModel):
     version: int
     indexed_chunks: int
     parser: str
+    low_confidence_pages: list[int] = Field(default_factory=list)
     status: Literal["ready"] = "ready"
 
 
