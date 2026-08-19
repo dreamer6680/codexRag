@@ -2,7 +2,7 @@ from uuid import uuid5, NAMESPACE_URL
 from uuid import UUID
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
-from .models import Citation, DocumentChunkDetail, IndexRequest
+from .models import Citation, DocumentChunkDetail, IndexRequest, StoredChunk
 from .embeddings import BaseEmbedding, OllamaEmbedding
 from .settings import settings
 
@@ -69,6 +69,55 @@ class VectorStore:
                 parser_confidence=float(point.payload.get("parser_confidence", 1)),
             )
             for index, point in enumerate(rows)
+        ]
+
+    def scan_chunks(
+        self,
+        owner_id: UUID,
+        document_scope: list[tuple[str, int]] | None = None,
+    ) -> list[StoredChunk]:
+        if document_scope is not None and not document_scope:
+            return []
+        must = [FieldCondition(key="owner_id", match=MatchValue(value=str(owner_id)))]
+        query_filter = Filter(
+            must=must,
+            should=[
+                Filter(
+                    must=[
+                        FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+                        FieldCondition(key="version", match=MatchValue(value=version)),
+                    ]
+                )
+                for document_id, version in document_scope
+            ] if document_scope is not None else None,
+        )
+        points, _ = self.client.scroll(
+            COLLECTION,
+            scroll_filter=query_filter,
+            limit=10000,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return [
+            StoredChunk(
+                document_id=point.payload["document_id"],
+                document_name=point.payload["document_name"],
+                version=int(point.payload["version"]),
+                chunk_index=int(point.payload.get("chunk_index", 0)),
+                text=point.payload["text"],
+                page=point.payload.get("page"),
+                section=point.payload.get("section"),
+                confidence=float(point.payload.get("confidence", 1)),
+                chunk_type=point.payload.get("chunk_type", "paragraph"),
+                section_path=point.payload.get("section_path", []),
+                parent_context=point.payload.get("parent_context"),
+                keywords=point.payload.get("keywords", []),
+                entities=point.payload.get("entities", {}),
+                bbox=point.payload.get("bbox"),
+                parser_confidence=float(point.payload.get("parser_confidence", 1)),
+            )
+            for point in points
+            if float(point.payload.get("confidence", 1)) >= 0.7
         ]
 
     async def search(

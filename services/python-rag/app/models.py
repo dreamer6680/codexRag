@@ -80,6 +80,26 @@ class DocumentChunkDetail(BaseModel):
     parser_confidence: float = Field(default=1, ge=0, le=1)
 
 
+class StoredChunk(BaseModel):
+    """Qdrant chunk payload normalized for non-vector retrieval."""
+
+    document_id: str
+    document_name: str
+    version: int
+    chunk_index: int
+    text: str
+    page: int | None = None
+    section: str | None = None
+    confidence: float = Field(default=1, ge=0, le=1)
+    chunk_type: str = "paragraph"
+    section_path: list[str] = Field(default_factory=list)
+    parent_context: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    entities: ChunkEntities = Field(default_factory=ChunkEntities)
+    bbox: BoundingBox | None = None
+    parser_confidence: float = Field(default=1, ge=0, le=1)
+
+
 class ServiceHealth(BaseModel):
     name: str
     healthy: bool

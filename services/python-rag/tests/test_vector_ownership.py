@@ -21,6 +21,10 @@ class FakeQdrant:
         self.query_filter = kwargs["query_filter"]
         return SimpleNamespace(points=[])
 
+    def scroll(self, _collection, **kwargs):
+        self.query_filter = kwargs["scroll_filter"]
+        return [], None
+
 
 def test_search_always_filters_vectors_by_owner():
     store = VectorStore(embedding=FakeEmbedding())
@@ -40,6 +44,20 @@ def test_search_combines_owner_and_active_document_versions():
 
     conditions = store.client.query_filter.must
     assert any(item.key == "owner_id" for item in conditions)
+    scopes = store.client.query_filter.should
+    assert scopes[0].must[0].match.value == "doc-a"
+    assert scopes[0].must[1].match.value == 2
+
+
+def test_lexical_scan_uses_same_owner_and_document_version_scope():
+    store = VectorStore(embedding=FakeEmbedding())
+    store.client = FakeQdrant()
+
+    store.scan_chunks(OWNER, [("doc-a", 2), ("doc-b", 4)])
+
+    conditions = store.client.query_filter.must
+    assert conditions[0].key == "owner_id"
+    assert conditions[0].match.value == str(OWNER)
     scopes = store.client.query_filter.should
     assert scopes[0].must[0].match.value == "doc-a"
     assert scopes[0].must[1].match.value == 2
