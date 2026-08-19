@@ -4,6 +4,7 @@ from pathlib import Path
 from .document_structure import StructuredDocument
 from .markdown_parser import MarkdownStructureParser
 from .models import ChunkInput, Document, IndexRequest
+from .structure_chunker import StructureAwareChunker
 
 
 class DocumentProcessor:
@@ -13,6 +14,7 @@ class DocumentProcessor:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.text_parser = MarkdownStructureParser()
+        self.chunker = StructureAwareChunker(max_chars=chunk_size)
 
     def from_text(
         self, document_id: str, name: str, content: str, version: int = 1
@@ -32,23 +34,7 @@ class DocumentProcessor:
 
     def to_index_request(self, document: Document) -> IndexRequest:
         structured = self.structure(document)
-        content_blocks = [block for block in structured.blocks if block.block_type != "heading"]
-        if not content_blocks:
-            content_blocks = structured.blocks
-        chunks = [
-            ChunkInput(
-                text=block.text,
-                page=block.page,
-                section=block.section,
-                char_start=block.char_start,
-                char_end=block.char_end,
-                chunk_type=block.block_type,
-                section_path=block.section_path,
-                bbox=block.bbox,
-                parser_confidence=block.parser_confidence,
-            )
-            for block in content_blocks
-        ]
+        chunks = self.chunker.chunk(structured)
         if not chunks:
             raise ValueError("document content is empty")
         return IndexRequest(
