@@ -3,6 +3,8 @@ from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
+from .document_structure import BoundingBox, ChunkEntities
+
 
 class Citation(BaseModel):
     document_id: str
@@ -37,6 +39,13 @@ class ChunkInput(BaseModel):
     confidence: float = Field(default=1, ge=0, le=1)
     char_start: int | None = Field(default=None, ge=0)
     char_end: int | None = Field(default=None, ge=0)
+    chunk_type: str = "paragraph"
+    section_path: list[str] = Field(default_factory=list)
+    parent_context: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    entities: ChunkEntities = Field(default_factory=ChunkEntities)
+    bbox: BoundingBox | None = None
+    parser_confidence: float = Field(default=1, ge=0, le=1)
 
     @field_validator("text")
     @classmethod
@@ -62,6 +71,13 @@ class DocumentChunkDetail(BaseModel):
     char_start: int | None = None
     char_end: int | None = None
     confidence: float = Field(default=1, ge=0, le=1)
+    chunk_type: str = "paragraph"
+    section_path: list[str] = Field(default_factory=list)
+    parent_context: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    entities: ChunkEntities = Field(default_factory=ChunkEntities)
+    bbox: BoundingBox | None = None
+    parser_confidence: float = Field(default=1, ge=0, le=1)
 
 
 class ServiceHealth(BaseModel):
