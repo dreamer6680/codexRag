@@ -38,7 +38,8 @@ def test_upload_text_chunks_and_indexes(monkeypatch):
 
     async def fake_index(self, request):
         assert request.document_name == "notes.md"
-        assert request.chunks[0].text == "# Hello\nRAG content"
+        assert request.chunks[0].text == "RAG content"
+        assert request.chunks[0].section_path == ["Hello"]
         assert request.owner_id == USER.id
         return len(request.chunks)
 
@@ -59,7 +60,8 @@ def test_upload_preparsed_pdf_does_not_require_mineru(monkeypatch):
     isolate_persistence(monkeypatch)
 
     async def fake_index(self, request):
-        assert request.chunks[0].text == "# Extracted PDF"
+        assert request.chunks[0].text == "Extracted PDF"
+        assert request.chunks[0].chunk_type == "heading"
         return 1
 
     monkeypatch.setattr(VectorStore, "index", fake_index)

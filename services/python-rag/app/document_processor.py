@@ -1,6 +1,8 @@
 """Document normalization and deterministic text chunking."""
 from pathlib import Path
 
+from .document_structure import StructuredDocument
+from .markdown_parser import MarkdownStructureParser
 from .models import ChunkInput, Document, IndexRequest
 
 
@@ -10,6 +12,7 @@ class DocumentProcessor:
             raise ValueError("chunk_size must be positive and overlap smaller than it")
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.text_parser = MarkdownStructureParser()
 
     def from_text(
         self, document_id: str, name: str, content: str, version: int = 1
@@ -28,22 +31,24 @@ class DocumentProcessor:
         return self.from_text(document_id, source.name, source.read_text(encoding="utf-8"), version)
 
     def to_index_request(self, document: Document) -> IndexRequest:
-        text = document.content
-        chunks: list[ChunkInput] = []
-        start = 0
-        while start < len(text):
-            end = min(len(text), start + self.chunk_size)
-            chunks.append(
-                ChunkInput(
-                    text=text[start:end],
-                    section=f"chars:{start}-{end}",
-                    char_start=start,
-                    char_end=end,
-                )
+        structured = self.structure(document)
+        content_blocks = [block for block in structured.blocks if block.block_type != "heading"]
+        if not content_blocks:
+            content_blocks = structured.blocks
+        chunks = [
+            ChunkInput(
+                text=block.text,
+                page=block.page,
+                section=block.section,
+                char_start=block.char_start,
+                char_end=block.char_end,
+                chunk_type=block.block_type,
+                section_path=block.section_path,
+                bbox=block.bbox,
+                parser_confidence=block.parser_confidence,
             )
-            if end == len(text):
-                break
-            start = end - self.chunk_overlap
+            for block in content_blocks
+        ]
         if not chunks:
             raise ValueError("document content is empty")
         return IndexRequest(
@@ -51,4 +56,12 @@ class DocumentProcessor:
             document_name=document.name,
             version=document.version,
             chunks=chunks,
+        )
+
+    def structure(self, document: Document) -> StructuredDocument:
+        return self.text_parser.parse(
+            document.document_id,
+            document.name,
+            document.content,
+            document.version,
         )
