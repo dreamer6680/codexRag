@@ -27,6 +27,11 @@ class VectorStore:
             "owner_id": str(request.owner_id), "document_id": request.document_id, "document_name": request.document_name, "version": request.version,
             "chunk_index": i, "page": chunk.page, "section": chunk.section, "text": chunk.text,
             "confidence": chunk.confidence, "char_start": chunk.char_start, "char_end": chunk.char_end,
+            "chunk_type": chunk.chunk_type, "section_path": chunk.section_path,
+            "parent_context": chunk.parent_context, "keywords": chunk.keywords,
+            "entities": chunk.entities.model_dump(),
+            "bbox": chunk.bbox.model_dump() if chunk.bbox else None,
+            "parser_confidence": chunk.parser_confidence,
         }) for i, (chunk, vector) in enumerate(zip(request.chunks, vectors))]
         self.client.upsert(COLLECTION, points=points, wait=True)
         return len(points)
@@ -55,6 +60,13 @@ class VectorStore:
                 char_start=point.payload.get("char_start"),
                 char_end=point.payload.get("char_end"),
                 confidence=float(point.payload.get("confidence", 1)),
+                chunk_type=point.payload.get("chunk_type", "paragraph"),
+                section_path=point.payload.get("section_path", []),
+                parent_context=point.payload.get("parent_context"),
+                keywords=point.payload.get("keywords", []),
+                entities=point.payload.get("entities", {}),
+                bbox=point.payload.get("bbox"),
+                parser_confidence=float(point.payload.get("parser_confidence", 1)),
             )
             for index, point in enumerate(rows)
         ]

@@ -14,6 +14,19 @@ export type DocumentChunk = {
   char_start?: number | null;
   char_end?: number | null;
   confidence?: number | null;
+  chunk_type?: string | null;
+  section_path?: string[];
+  parent_context?: string | null;
+  keywords?: string[];
+  entities?: {
+    companies?: string[];
+    roles?: string[];
+    projects?: string[];
+    dates?: string[];
+    people?: string[];
+  };
+  bbox?: { x0: number; y0: number; x1: number; y1: number } | null;
+  parser_confidence?: number | null;
 };
 
 export type DocumentDetail = {
@@ -147,9 +160,15 @@ export function DocumentDetailView({ detail, onBack }: { detail: DocumentDetail 
               {mode === "chunk" && (
                 selectedChunk ? (
                   <div>
-                    <p className="mb-3 font-mono text-xs text-blue-600">
-                      CHUNK {selectedChunk.index + 1} · {chunkLocation(selectedChunk)}
-                    </p>
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <p className="font-mono text-xs text-blue-600">
+                        CHUNK {selectedChunk.index + 1} · {chunkLocation(selectedChunk)}
+                      </p>
+                      <Badge className="border-blue-200 bg-blue-50 text-blue-700">
+                        {chunkTypeLabel(selectedChunk.chunk_type)}
+                      </Badge>
+                    </div>
+                    <ChunkStructure chunk={selectedChunk} />
                     <div className="rounded-md border-l-2 border-blue-500 bg-blue-50 p-4 text-sm leading-7 text-blue-950">
                       {selectedChunk.text || "当前 Chunk 没有文本内容。"}
                     </div>
@@ -162,6 +181,38 @@ export function DocumentDetailView({ detail, onBack }: { detail: DocumentDetail 
       </Card>
     </div>
   );
+}
+
+function ChunkStructure({ chunk }: { chunk: DocumentChunk }) {
+  const rows = [
+    ["章节", chunk.section_path?.join(" / ") || chunk.parent_context],
+    ["公司", chunk.entities?.companies?.join("、")],
+    ["岗位", chunk.entities?.roles?.join("、")],
+    ["项目", chunk.entities?.projects?.join("、")],
+    ["时间", chunk.entities?.dates?.join("、")],
+  ].filter((row): row is [string, string] => Boolean(row[1]));
+  if (!rows.length) return null;
+  return (
+    <dl className="mb-4 grid gap-2 rounded-md border bg-zinc-50 p-3 text-xs sm:grid-cols-2">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex gap-2">
+          <dt className="shrink-0 text-zinc-500">{label}：</dt>
+          <dd className="font-medium text-zinc-800">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function chunkTypeLabel(type?: string | null) {
+  return ({
+    resume_experience: "简历经历",
+    heading: "标题",
+    paragraph: "段落",
+    list_item: "列表项",
+    table_row: "表格行",
+    code: "代码",
+  } as Record<string, string>)[type || ""] || "内容块";
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
