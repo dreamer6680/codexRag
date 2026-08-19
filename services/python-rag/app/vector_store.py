@@ -149,4 +149,22 @@ class VectorStore:
             limit=settings.retrieval_top_k,
             score_threshold=settings.retrieval_score_threshold,
         ).points
-        return [Citation(document_id=p.payload["document_id"], document_name=p.payload["document_name"], version=p.payload["version"], page=p.payload.get("page"), section=p.payload.get("section"), excerpt=p.payload["text"], confidence=min(1, max(0, p.score))) for p in hits if p.payload.get("confidence", 1) >= .7]
+        return [
+            Citation(
+                document_id=p.payload["document_id"],
+                document_name=p.payload["document_name"],
+                version=p.payload["version"],
+                page=p.payload.get("page"),
+                section=p.payload.get("section"),
+                excerpt=p.payload["text"],
+                confidence=min(1, max(0, p.score)),
+                chunk_index=p.payload.get("chunk_index"),
+                chunk_type=p.payload.get("chunk_type"),
+                entities=p.payload.get("entities", {}),
+                parser_confidence=float(p.payload.get("parser_confidence", 1)),
+                dense_score=min(1, max(0, p.score)),
+                retrieval_sources=["dense"],
+            )
+            for p in hits
+            if p.payload.get("confidence", 1) >= .7
+        ]

@@ -14,6 +14,16 @@ class Citation(BaseModel):
     section: str | None = None
     excerpt: str
     confidence: float = Field(ge=0, le=1)
+    chunk_index: int | None = None
+    chunk_type: str | None = None
+    entities: ChunkEntities = Field(default_factory=ChunkEntities)
+    parser_confidence: float = Field(default=1, ge=0, le=1)
+    dense_score: float | None = Field(default=None, ge=0, le=1)
+    lexical_score: float | None = Field(default=None, ge=0)
+    rrf_score: float | None = Field(default=None, ge=0)
+    exact_entity_match: bool = False
+    relation_coverage: bool = False
+    retrieval_sources: list[str] = Field(default_factory=list)
 
 
 class QueryRequest(BaseModel):

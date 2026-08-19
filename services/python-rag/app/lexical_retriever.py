@@ -28,7 +28,7 @@ def _entity_phrases(chunk: StoredChunk) -> list[str]:
 
 def _relation_coverage(analysis: QueryAnalysis, chunk: StoredChunk) -> bool:
     if not analysis.relations:
-        return True
+        return False
     checks = {
         "position": bool(chunk.entities.roles) or "岗位：" in chunk.text or "职位：" in chunk.text,
         "responsibilities": "职责：" in chunk.text or chunk.chunk_type == "resume_experience",
@@ -94,4 +94,3 @@ class LexicalRetriever:
             reverse=True,
         )
         return hits[:limit]
-

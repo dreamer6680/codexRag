@@ -43,7 +43,7 @@ class EvidencePolicy:
         return sum(gram in normalized_excerpt for gram in grams) / len(grams)
 
     def filter(self, citations: list[Citation], question: str = "") -> EvidenceDecision:
-        relevant = [item for item in citations if item.confidence >= self.min_score]
+        relevant = [item for item in citations if self._is_relevant(item)]
         if question:
             relevant.sort(
                 key=lambda item: item.confidence + 0.08 * self._lexical_overlap(question, item.excerpt),
@@ -54,6 +54,20 @@ class EvidencePolicy:
             return EvidenceDecision([], "none", "low_relevance")
 
         return EvidenceDecision(selected, self.confidence_for(selected))
+
+    def _is_relevant(self, item: Citation) -> bool:
+        if item.parser_confidence < 0.7:
+            return False
+        dense_score = item.dense_score if item.dense_score is not None else item.confidence
+        if dense_score >= self.min_score:
+            return True
+        if item.exact_entity_match and item.relation_coverage:
+            return True
+        return bool(
+            item.relation_coverage
+            and item.lexical_score is not None
+            and item.lexical_score >= 1.5
+        )
 
     def confidence_for(self, citations: list[Citation]) -> ConfidenceLevel:
         if not citations:

@@ -59,3 +59,40 @@ def test_exact_question_terms_break_close_vector_score_ties():
     )
 
     assert decision.citations[0] == title_page
+
+
+def test_exact_entity_and_requested_relation_can_rescue_low_dense_score():
+    item = Citation(
+        document_id="resume",
+        document_name="resume.pdf",
+        version=1,
+        excerpt="公司：珠海环届云有限公司\n岗位：全栈研发\n项目：FastGPT",
+        confidence=0.72,
+        dense_score=0.4313,
+        lexical_score=4.2,
+        exact_entity_match=True,
+        relation_coverage=True,
+        parser_confidence=0.95,
+    )
+
+    decision = EvidencePolicy(min_score=0.52, max_evidence=6).filter([item])
+
+    assert decision.citations == [item]
+
+
+def test_generic_lexical_overlap_cannot_rescue_low_dense_score():
+    item = Citation(
+        document_id="thesis",
+        document_name="thesis.pdf",
+        version=1,
+        excerpt="软件测试需求与实现",
+        confidence=0.50,
+        dense_score=0.43,
+        lexical_score=3.0,
+        exact_entity_match=False,
+        relation_coverage=False,
+    )
+
+    decision = EvidencePolicy(min_score=0.52, max_evidence=6).filter([item])
+
+    assert decision.citations == []

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     minio_secure: bool = False
     rag_host: str = "127.0.0.1"
     rag_port: int = 8001
-    retrieval_strategy: str = "vector"
+    retrieval_strategy: str = "hybrid"
     retrieval_top_k: int = 12
     retrieval_score_threshold: float = 0.35
     retrieval_min_evidence_score: float = 0.52
