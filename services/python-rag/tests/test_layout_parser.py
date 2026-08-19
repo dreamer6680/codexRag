@@ -71,3 +71,15 @@ def test_pdf_parser_reads_coordinates_from_pdf_bytes():
     assert [block.text for block in structured.blocks] == ["Resume", "FastGPT"]
     assert structured.blocks[1].bbox.x0 >= 300
     assert structured.parser == "pymupdf-layout"
+
+
+def test_known_resume_section_label_is_heading_even_without_larger_font():
+    blocks = [
+        RawLayoutBlock("工作经历", 1, 600, 800, (310, 90, 580, 115), 10, False),
+        RawLayoutBlock("珠海环届云有限公司 2025年03月-2025年07月", 1, 600, 800, (310, 125, 580, 150), 10, False),
+    ]
+
+    structured = PdfLayoutParser().from_blocks("resume", "resume.pdf", blocks)
+
+    assert structured.blocks[0].block_type == "heading"
+    assert structured.blocks[1].section_path == ["工作经历"]

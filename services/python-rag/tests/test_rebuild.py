@@ -1,7 +1,6 @@
 import asyncio
 from uuid import UUID
 
-from app.document_catalog import DocumentCatalog
 from app.ingestion import IndexRebuilder, IngestionResult
 from app.document_structure import DocumentBlock, StructuredDocument
 from app.models import ChunkInput, DocumentRecord, IndexRequest

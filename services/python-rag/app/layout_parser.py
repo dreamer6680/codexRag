@@ -12,6 +12,10 @@ from .document_structure import BoundingBox, DocumentBlock, StructuredDocument, 
 
 PAGE_NUMBER_RE = re.compile(r"\d+")
 LIST_PREFIX_RE = re.compile(r"^\s*(?:[•●▪◦‣⁃*-]|\d+[.)、])\s*")
+KNOWN_SECTION_HEADINGS = {
+    "个人信息", "教育经历", "工作经历", "实习经历", "项目经历",
+    "荣誉奖励", "荣誉奖项", "技术栈", "专业技能", "技能", "自我评价",
+}
 
 
 @dataclass(frozen=True)
@@ -187,8 +191,10 @@ class PdfLayoutParser:
         headings: list[str] = []
         output: list[DocumentBlock] = []
         for raw_block in ordered:
-            is_heading = raw_block.font_size >= common_font * 1.25 or (
-                raw_block.bold and raw_block.font_size >= common_font * 1.18
+            is_heading = (
+                raw_block.text.strip("：:") in KNOWN_SECTION_HEADINGS
+                or raw_block.font_size >= common_font * 1.25
+                or (raw_block.bold and raw_block.font_size >= common_font * 1.18)
             )
             is_list = bool(LIST_PREFIX_RE.match(raw_block.text))
             text = LIST_PREFIX_RE.sub("", raw_block.text) if is_list else raw_block.text

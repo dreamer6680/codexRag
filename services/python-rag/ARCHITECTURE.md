@@ -10,15 +10,20 @@ API / 编排层
 └── pipeline.py           文档入库与检索的统一门面
 
 文档处理层
-├── models.Document       标准文档与元数据
-└── DocumentProcessor     文本归一化、重叠切块；复杂格式交给 MinerU
+├── layout_parser         PDF 坐标提取、栏位检测与阅读顺序重建
+├── markdown_parser       Markdown/TXT 标题、列表、表格结构解析
+├── resume_enricher       公司、岗位、项目、职责关系增强
+├── structure_chunker     语义单元切块与父级上下文继承
+└── ingestion             原始文件解析、索引和版本重建编排
 
 嵌入表示层
 ├── BaseEmbedding         可替换的统一接口
 └── OllamaEmbedding       当前本地实现（bge-m3）
 
 检索与上下文层
-├── MultiStrategyRetriever 向量、MQE、HyDE、混合检索与 RRF 融合
+├── LexicalRetriever       用户范围内的 BM25、精确实体和关系召回
+├── MultiStrategyRetriever 向量/关键词双路召回与 RRF 融合
+├── EvidencePolicy         实体、关系、解析质量和向量分综合门控
 └── ContextBuilder          去重、编号、字符预算截断
 
 存储与模型适配层
@@ -28,11 +33,29 @@ API / 编排层
 
 ## 请求流程
 
-1. `/rag/index` 接收切块数据，通过统一嵌入接口生成向量并写入 Qdrant。
-2. `/rag/query` 根据 `strategy` 生成一个或多个检索查询。
-3. 多路结果使用 Reciprocal Rank Fusion 去重与排序。
-4. `ContextBuilder` 在上下文预算内组装证据。
-5. 没有证据时直接拒答；有证据时才调用 Ollama，并返回引用。
+1. `/rag/upload` 保存原文件。文本 PDF 直接读取文字坐标，扫描型 PDF 才调用 MinerU。
+2. 解析器统一输出标题、段落、列表、表格、页码和坐标；简历增强器进一步形成“公司—岗位—项目—职责”单元。
+3. 结构切块器只在语义边界拆分，拆分后的子块重复必要父级关系。
+4. 索引同时保存稠密向量、关键词、实体、章节路径和解析置信度。
+5. `/rag/query` 分别执行 Qdrant 向量召回和应用内 BM25 召回，再使用 Reciprocal Rank Fusion 去重排序。
+6. 精确实体与所问关系位于同一结构块时，可以补救较低的向量分；普通词面重合不能绕过证据门控。
+7. `ContextBuilder` 在预算内组装通过门控的证据。没有可靠证据时直接拒答，有证据时才调用 Ollama。
+
+## 索引重建
+
+`POST /rag/documents/rebuild` 只处理当前登录用户的文档。每份文档从 MinIO 原文件生成
+一个新版本，先写入全部新向量并切换 PostgreSQL 目录中的活动版本，成功后再删除旧版本
+向量。解析或嵌入失败不会撤下旧版本，也不会阻塞批次内其他文档。
+
+当前项目处于 Demo 阶段，不兼容旧分块 payload。升级后应在“我的文档”页面执行一次
+“重建全部索引”。
+
+## Demo 规模限制
+
+关键词通道通过 Qdrant `scroll` 读取当前用户、活动版本和所选文档范围内的 Chunk，并在
+Python 服务中计算 BM25，当前上限为 10000 个 Chunk。该方案适合本地 Demo，能可靠处理
+中文二元词、英文标识符和实体短语；生产规模应把 `LexicalRetriever` 替换为 Qdrant
+稀疏向量、Elasticsearch/OpenSearch 或专用倒排索引，融合与证据门控接口无需改变。
 
 ## 与记忆系统的边界
 
@@ -54,7 +77,7 @@ RAG 知识库保存经过审核、可引用的文档事实；记忆系统保存�
 
 | 变量 | 默认值 | 作用 |
 |---|---:|---|
-| `RETRIEVAL_STRATEGY` | `vector` | 默认检索策略 |
+| `RETRIEVAL_STRATEGY` | `hybrid` | 默认使用向量与 BM25 双路召回 |
 | `RETRIEVAL_TOP_K` | `12` | 最终召回数量 |
 | `RETRIEVAL_SCORE_THRESHOLD` | `0.35` | Qdrant 初召回相似度门槛 |
 | `RETRIEVAL_MIN_EVIDENCE_SCORE` | `0.52` | 允许进入回答节点的最低证据分数 |
@@ -62,5 +85,5 @@ RAG 知识库保存经过审核、可引用的文档事实；记忆系统保存�
 | `CONTEXT_MAX_CHARS` | `12000` | 发送给生成模型的最大证据字符数 |
 | `RAG_HOST` / `RAG_PORT` | `127.0.0.1` / `8001` | API 监听地址 |
 
-生产环境应优先使用 `vector` 或 `hybrid`，并在自己的文档集上评测阈值。MQE/HyDE
-会增加模型调用次数与延迟，在 Ollama 不可用时会自动降级为普通向量检索。
+`hybrid` 不依赖问答模型，Ollama 问答模型不可用时仍能完成检索与证据门控，但无法生成
+最终自然语言答案。MQE/HyDE 是显式可选的纯向量查询扩写策略，会增加模型调用次数与延迟。
