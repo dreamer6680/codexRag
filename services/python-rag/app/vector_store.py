@@ -1,7 +1,7 @@
 from uuid import uuid5, NAMESPACE_URL
 from uuid import UUID
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+from qdrant_client.http.models import Distance, FieldCondition, Filter, FilterSelector, MatchValue, PointStruct, VectorParams
 from .models import Citation, DocumentChunkDetail, IndexRequest, StoredChunk
 from .embeddings import BaseEmbedding, OllamaEmbedding
 from .settings import settings
@@ -119,6 +119,21 @@ class VectorStore:
             for point in points
             if float(point.payload.get("confidence", 1)) >= 0.7
         ]
+
+    def delete_document_version(self, owner_id: UUID, document_id: str, version: int) -> None:
+        self.client.delete(
+            COLLECTION,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[
+                        FieldCondition(key="owner_id", match=MatchValue(value=str(owner_id))),
+                        FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+                        FieldCondition(key="version", match=MatchValue(value=version)),
+                    ]
+                )
+            ),
+            wait=True,
+        )
 
     async def search(
         self,

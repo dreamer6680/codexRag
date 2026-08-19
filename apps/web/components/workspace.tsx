@@ -10,6 +10,7 @@ import { DocumentDetailView, type DocumentDetail } from "@/components/document-d
 import { appendPendingTurn, completePendingTurn, failPendingTurn, type ChatMessage, type ConversationDetail, type ConversationListItem } from "@/lib/chat-state";
 
 type DocumentRecord = { document_id: string; document_name: string; version: number; content_type?: string | null; parser: string; status: "ready" | "index_failed"; page_count?: number | null; pdf_type?: string | null; chunk_count: number; created_at?: string | null; updated_at?: string | null };
+type RebuildResult = { succeeded: number; failed: number; results: Array<{ document_id: string; document_name: string; status: "ready" | "failed"; error?: string | null }> };
 type View = "chat" | "documents" | "detail";
 
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -35,6 +36,7 @@ export function Workspace() {
   const [sending, setSending] = useState(false);
   const [filterSaving, setFilterSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [detail, setDetail] = useState<DocumentDetail | null>(null);
 
@@ -141,6 +143,21 @@ export function Workspace() {
     }
   }
 
+  async function rebuildAll() {
+    if (rebuilding || uploading) return;
+    setRebuilding(true);
+    setNotice("正在从原始文件重建结构化索引…");
+    try {
+      const result = await jsonRequest<RebuildResult>("/api/documents/rebuild", { method: "POST" });
+      setNotice(rebuildNotice(result));
+      await loadDocuments();
+    } catch (error) {
+      setNotice(error instanceof Error ? `重建失败：${error.message}` : "重建失败");
+    } finally {
+      setRebuilding(false);
+    }
+  }
+
   return <div className="min-h-screen bg-zinc-50 text-zinc-950">
     <ChatSidebar conversations={conversations} activeId={activeId} view={view} onNew={() => void createConversation()} onSelect={id => void openConversation(id)} onView={next => setView(next)} />
     <main className="lg:pl-72">
@@ -148,14 +165,20 @@ export function Workspace() {
       <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
         {notice && <div className="mb-5 flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"><span>{notice}</span><button onClick={() => setNotice(null)} aria-label="关闭">×</button></div>}
         {view === "chat" && <ChatPanel messages={messages} input={input} sending={sending} documents={documents} selectedDocumentIds={selectedDocumentIds} filterSaving={filterSaving} onInput={setInput} onSend={send} onFilter={ids => void saveFilter(ids)} />}
-        {view === "documents" && <DocumentsView documents={documents} uploading={uploading} onUpload={upload} onOpen={openDocument} />}
+        {view === "documents" && <DocumentsView documents={documents} uploading={uploading} rebuilding={rebuilding} onUpload={upload} onRebuild={() => void rebuildAll()} onOpen={openDocument} />}
         {view === "detail" && <DocumentDetailView detail={detail} onBack={() => setView("documents")} />}
       </div>
     </main>
   </div>;
 }
 
-function DocumentsView({ documents, uploading, onUpload, onOpen }: { documents: DocumentRecord[]; uploading: boolean; onUpload: (file: File) => void; onOpen: (id: string) => void }) {
+function DocumentsView({ documents, uploading, rebuilding, onUpload, onRebuild, onOpen }: { documents: DocumentRecord[]; uploading: boolean; rebuilding: boolean; onUpload: (file: File) => void; onRebuild: () => void; onOpen: (id: string) => void }) {
   const input = useRef<HTMLInputElement>(null);
-  return <div><div className="flex items-end justify-between"><div><h1 className="text-3xl font-semibold tracking-tight">我的文档</h1><p className="mt-2 text-sm text-zinc-500">这里只有当前账户上传的资料。</p></div><Button variant="outline" disabled={uploading} onClick={() => input.current?.click()}>{uploading ? "解析中…" : "上传资料"}</Button><input ref={input} className="hidden" type="file" accept=".pdf,.txt,.md" onChange={event => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ""; }} /></div><Card className="mt-7 overflow-hidden"><div className="border-b px-5 py-4 text-sm font-medium">全部资料 <span className="text-zinc-500">{documents.length}</span></div>{documents.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-zinc-50 text-xs text-zinc-500"><tr><th className="px-5 py-3">名称</th><th className="px-5 py-3">状态</th><th className="px-5 py-3">分块</th><th className="px-5 py-3">解析器</th><th /></tr></thead><tbody>{documents.map(document => <tr key={document.document_id} className="border-t"><td className="px-5 py-4 font-medium">{document.document_name}</td><td className="px-5 py-4">{document.status === "ready" ? "已就绪" : "索引失败"}</td><td className="px-5 py-4 text-zinc-500">{document.chunk_count}</td><td className="px-5 py-4 text-zinc-500">{document.parser}</td><td className="px-5 py-4 text-right"><Button variant="ghost" onClick={() => onOpen(document.document_id)}>查看</Button></td></tr>)}</tbody></table></div> : <div className="grid min-h-72 place-items-center text-center"><div><p className="font-medium">还没有个人文档</p><p className="mt-2 text-sm text-zinc-500">上传 PDF、TXT 或 Markdown 后即可开始检索。</p></div></div>}</Card></div>;
+  return <div><div className="flex items-end justify-between gap-4"><div><h1 className="text-3xl font-semibold tracking-tight">我的文档</h1><p className="mt-2 text-sm text-zinc-500">这里只有当前账户上传的资料。</p></div><div className="flex gap-2"><Button variant="outline" disabled={uploading || rebuilding || !documents.length} onClick={onRebuild}>{rebuilding ? "重建中…" : "重建全部索引"}</Button><Button variant="outline" disabled={uploading || rebuilding} onClick={() => input.current?.click()}>{uploading ? "解析中…" : "上传资料"}</Button></div><input ref={input} className="hidden" type="file" accept=".pdf,.txt,.md" onChange={event => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ""; }} /></div><Card className="mt-7 overflow-hidden"><div className="border-b px-5 py-4 text-sm font-medium">全部资料 <span className="text-zinc-500">{documents.length}</span></div>{documents.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-zinc-50 text-xs text-zinc-500"><tr><th className="px-5 py-3">名称</th><th className="px-5 py-3">状态</th><th className="px-5 py-3">分块</th><th className="px-5 py-3">解析器</th><th /></tr></thead><tbody>{documents.map(document => <tr key={document.document_id} className="border-t"><td className="px-5 py-4 font-medium">{document.document_name}</td><td className="px-5 py-4">{document.status === "ready" ? "已就绪" : "索引失败"}</td><td className="px-5 py-4 text-zinc-500">{document.chunk_count}</td><td className="px-5 py-4 text-zinc-500">{document.parser}</td><td className="px-5 py-4 text-right"><Button variant="ghost" onClick={() => onOpen(document.document_id)}>查看</Button></td></tr>)}</tbody></table></div> : <div className="grid min-h-72 place-items-center text-center"><div><p className="font-medium">还没有个人文档</p><p className="mt-2 text-sm text-zinc-500">上传 PDF、TXT 或 Markdown 后即可开始检索。</p></div></div>}</Card></div>;
+}
+
+export function rebuildNotice(result: RebuildResult) {
+  if (!result.failed) return `已重建 ${result.succeeded} 份文档的结构化索引`;
+  const failedNames = result.results.filter(item => item.status === "failed").map(item => item.document_name).join("、");
+  return `已重建 ${result.succeeded} 份，失败 ${result.failed} 份${failedNames ? `：${failedNames}` : ""}`;
 }

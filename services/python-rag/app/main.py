@@ -14,9 +14,9 @@ from fastapi.responses import Response
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from app.graph import run_query
-    from app.ingestion import IngestionService
+    from app.ingestion import IndexRebuilder, IngestionService
     from app.document_catalog import DocumentCatalog
-    from app.models import DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, ServiceHealth, UploadResponse
+    from app.models import DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, RebuildResponse, ServiceHealth, UploadResponse
     from app.object_storage import ObjectStorage
     from app.vector_store import VectorStore
     from app.ollama import OllamaClient
@@ -27,9 +27,9 @@ if __package__ in (None, ""):
     from app.models import ConversationDetail, ConversationListResponse, ConversationSummary, CreateConversationRequest, SendMessageRequest, SendMessageResponse, UpdateConversationRequest
 else:
     from .graph import run_query
-    from .ingestion import IngestionService
+    from .ingestion import IndexRebuilder, IngestionService
     from .document_catalog import DocumentCatalog
-    from .models import DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, ServiceHealth, UploadResponse
+    from .models import DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, RebuildResponse, ServiceHealth, UploadResponse
     from .object_storage import ObjectStorage
     from .vector_store import VectorStore
     from .ollama import OllamaClient
@@ -195,6 +195,17 @@ async def upload(
 async def documents(user: AuthenticatedUser = Depends(require_user)):
     document_catalog.upsert_user(user)
     return DocumentListResponse(documents=document_catalog.list_documents(user.id))
+
+
+@app.post("/rag/documents/rebuild", response_model=RebuildResponse)
+async def rebuild_documents(user: AuthenticatedUser = Depends(require_user)):
+    document_catalog.upsert_user(user)
+    return await IndexRebuilder(
+        catalog=document_catalog,
+        storage=object_storage,
+        store=VectorStore(),
+        ingestion=IngestionService(),
+    ).rebuild_all(user.id)
 
 
 @app.get("/rag/documents/{document_id}", response_model=DocumentDetailResponse)

@@ -126,6 +126,22 @@ class UploadResponse(BaseModel):
     status: Literal["ready"] = "ready"
 
 
+class RebuildDocumentResult(BaseModel):
+    document_id: str
+    document_name: str
+    old_version: int
+    new_version: int | None = None
+    status: Literal["ready", "failed"]
+    indexed_chunks: int = 0
+    error: str | None = None
+
+
+class RebuildResponse(BaseModel):
+    results: list[RebuildDocumentResult]
+    succeeded: int
+    failed: int
+
+
 class DocumentRecord(BaseModel):
     owner_id: UUID | None = None
     document_id: str

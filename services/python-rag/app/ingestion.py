@@ -10,7 +10,7 @@ import httpx
 from .document_processor import DocumentProcessor
 from .document_structure import StructuredDocument
 from .layout_parser import PdfLayoutParser
-from .models import IndexRequest
+from .models import DocumentRecord, IndexRequest, RebuildDocumentResult, RebuildResponse
 from .settings import settings
 from .structure_chunker import StructureAwareChunker
 
@@ -125,3 +125,101 @@ class IngestionService:
             raise ValueError("MinerU 返回内容为空")
         return markdown
 
+
+class IndexRebuilder:
+    """Publish a new index generation for each document owned by one user."""
+
+    def __init__(self, catalog=None, storage=None, store=None, ingestion=None) -> None:
+        if catalog is None:
+            from .document_catalog import DocumentCatalog
+            catalog = DocumentCatalog()
+        if storage is None:
+            from .object_storage import ObjectStorage
+            storage = ObjectStorage()
+        if store is None:
+            from .vector_store import VectorStore
+            store = VectorStore()
+        self.catalog = catalog
+        self.storage = storage
+        self.store = store
+        self.ingestion = ingestion or IngestionService()
+
+    async def rebuild_all(self, owner_id) -> RebuildResponse:
+        results: list[RebuildDocumentResult] = []
+        for record in self.catalog.list_documents(owner_id):
+            results.append(await self._rebuild_document(owner_id, record))
+        succeeded = sum(result.status == "ready" for result in results)
+        return RebuildResponse(results=results, succeeded=succeeded, failed=len(results) - succeeded)
+
+    async def _rebuild_document(self, owner_id, record: DocumentRecord) -> RebuildDocumentResult:
+        new_version = record.version + 1
+        reserved = False
+        indexed = False
+        try:
+            raw = self.storage.get_bytes(record.original_object_key)
+            parsed = await self.ingestion.parse(
+                record.document_id,
+                record.document_name,
+                raw,
+                record.content_type or "application/octet-stream",
+                pdf_type=record.pdf_type,
+                version=new_version,
+            )
+            reserved = self.catalog.reserve_index_version(
+                owner_id, record.document_id, record.document_name, new_version
+            )
+            if not reserved:
+                raise RuntimeError("无法预留新的索引版本")
+            request = parsed.request.model_copy(update={"owner_id": owner_id})
+            count = await self.store.index(request)
+            indexed = True
+            markdown_key = (
+                f"users/{owner_id}/documents/{record.document_id}/v{new_version}/parsed.md"
+            )
+            self.storage.put_bytes(
+                markdown_key,
+                parsed.markdown.encode("utf-8"),
+                "text/markdown; charset=utf-8",
+            )
+            new_record = record.model_copy(
+                update={
+                    "version": new_version,
+                    "parser": parsed.parser,
+                    "status": "ready",
+                    "chunk_count": count,
+                    "markdown_object_key": markdown_key,
+                }
+            )
+            if not self.catalog.finalize_index(new_record, owner_id):
+                raise RuntimeError("新索引版本发布失败")
+        except Exception as exc:
+            if reserved:
+                self.catalog.mark_index_failed(owner_id, record.document_id, new_version)
+            if indexed:
+                try:
+                    self.store.delete_document_version(owner_id, record.document_id, new_version)
+                except Exception:
+                    pass
+            return RebuildDocumentResult(
+                document_id=record.document_id,
+                document_name=record.document_name,
+                old_version=record.version,
+                new_version=new_version,
+                status="failed",
+                error=str(exc),
+            )
+
+        try:
+            self.store.delete_document_version(owner_id, record.document_id, record.version)
+        except Exception:
+            # The new generation is already active. Stale points are excluded by
+            # the catalog version filter and can be cleaned up on a later rebuild.
+            pass
+        return RebuildDocumentResult(
+            document_id=record.document_id,
+            document_name=record.document_name,
+            old_version=record.version,
+            new_version=new_version,
+            status="ready",
+            indexed_chunks=count,
+        )
