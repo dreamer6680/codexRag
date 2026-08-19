@@ -154,4 +154,3 @@ class MarkdownStructureParser:
             parser=parser,
             version=version,
         )
-

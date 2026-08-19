@@ -93,4 +93,3 @@ def test_unrelated_requirement_review_question_stays_below_evidence_gate():
 
     assert decision.citations == []
     assert decision.reason == "low_relevance"
-

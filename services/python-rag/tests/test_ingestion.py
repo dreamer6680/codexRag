@@ -67,4 +67,3 @@ def test_markdown_uses_common_structure_pipeline():
 
     assert result.parser == "markdown-structure"
     assert result.request.chunks[0].section_path == ["Title"]
-

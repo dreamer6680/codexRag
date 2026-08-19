@@ -27,4 +27,3 @@ def test_tokenizer_uses_indexed_entities_and_chinese_bigrams():
     assert "fastgpt" in tokens
     assert "珠海环届云有限公司" in tokens
     assert "全栈" in tokens
-

@@ -68,4 +68,3 @@ def analyze_query(question: str) -> QueryAnalysis:
     if any(term in question for term in ("题目", "标题")):
         relations.add("title")
     return QueryAnalysis(tokens=tokenize_text(question, entity_phrases=companies), exact_terms=exact_terms, relations=relations)
-

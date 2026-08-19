@@ -149,4 +149,3 @@ class StructureAwareChunker:
             )
             for batch in batches
         ]
-

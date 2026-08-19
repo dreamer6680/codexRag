@@ -70,4 +70,3 @@ class StructuredDocument(BaseModel):
     markdown: str = ""
     parser: str = "structured-text"
     version: int = Field(default=1, ge=1)
-

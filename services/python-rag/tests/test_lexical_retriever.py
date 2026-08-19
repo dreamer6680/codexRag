@@ -84,4 +84,3 @@ def test_empty_scope_returns_without_scanning_store():
             raise AssertionError("empty scope must not access Qdrant")
 
     assert LexicalRetriever(FailingStore()).search("FastGPT", OWNER, []) == []
-
