@@ -1,0 +1,12 @@
+[
+  {"text": "个人简历", "page": 1, "page_width": 600, "page_height": 800, "bbox": [20, 20, 580, 50], "font_size": 20, "bold": true},
+  {"text": "技能", "page": 1, "page_width": 600, "page_height": 800, "bbox": [20, 90, 270, 115], "font_size": 14, "bold": true},
+  {"text": "Java Python", "page": 1, "page_width": 600, "page_height": 800, "bbox": [20, 125, 270, 150], "font_size": 10, "bold": false},
+  {"text": "教育经历", "page": 1, "page_width": 600, "page_height": 800, "bbox": [20, 190, 270, 215], "font_size": 14, "bold": true},
+  {"text": "杭州电子科技大学", "page": 1, "page_width": 600, "page_height": 800, "bbox": [20, 225, 270, 250], "font_size": 10, "bold": false},
+  {"text": "工作经历", "page": 1, "page_width": 600, "page_height": 800, "bbox": [310, 90, 580, 115], "font_size": 14, "bold": true},
+  {"text": "珠海环届云有限公司", "page": 1, "page_width": 600, "page_height": 800, "bbox": [310, 125, 580, 150], "font_size": 11, "bold": true},
+  {"text": "全栈研发", "page": 1, "page_width": 600, "page_height": 800, "bbox": [310, 158, 580, 180], "font_size": 10, "bold": false},
+  {"text": "FastGPT", "page": 1, "page_width": 600, "page_height": 800, "bbox": [310, 195, 580, 220], "font_size": 11, "bold": true},
+  {"text": "• 实现 Redis 定时同步知识库", "page": 1, "page_width": 600, "page_height": 800, "bbox": [310, 230, 580, 255], "font_size": 10, "bold": false}
+]
