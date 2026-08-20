@@ -135,6 +135,36 @@ class VectorStore:
             wait=True,
         )
 
+    @staticmethod
+    def _document_filter(owner_id: UUID, document_id: str) -> Filter:
+        return Filter(
+            must=[
+                FieldCondition(key="owner_id", match=MatchValue(value=str(owner_id))),
+                FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+            ]
+        )
+
+    def delete_document(self, owner_id: UUID, document_id: str) -> None:
+        if not self.client.collection_exists(COLLECTION):
+            return
+        self.client.delete(
+            COLLECTION,
+            points_selector=FilterSelector(filter=self._document_filter(owner_id, document_id)),
+            wait=True,
+        )
+
+    def document_exists(self, owner_id: UUID, document_id: str) -> bool:
+        if not self.client.collection_exists(COLLECTION):
+            return False
+        points, _ = self.client.scroll(
+            COLLECTION,
+            scroll_filter=self._document_filter(owner_id, document_id),
+            limit=1,
+            with_payload=False,
+            with_vectors=False,
+        )
+        return bool(points)
+
     async def search(
         self,
         question: str,

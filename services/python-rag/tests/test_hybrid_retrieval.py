@@ -15,6 +15,15 @@ class StaticCatalog:
         assert owner_id == OWNER
         return [("resume", 1), ("thesis", 1)]
 
+    def live_document_ids(self, owner_id, document_ids):
+        assert owner_id == OWNER
+        return set(document_ids)
+
+
+class DeletedAfterScopeCatalog(StaticCatalog):
+    def live_document_ids(self, owner_id, document_ids):
+        return set()
+
 
 class HybridStore:
     async def search(self, question, owner_id, document_scope):
@@ -93,3 +102,11 @@ def test_unrelated_requirement_review_question_stays_below_evidence_gate():
 
     assert decision.citations == []
     assert decision.reason == "low_relevance"
+
+
+def test_hybrid_retrieval_drops_document_deleted_after_scope_load():
+    retriever = MultiStrategyRetriever(store=HybridStore(), catalog=DeletedAfterScopeCatalog())
+
+    citations = asyncio.run(retriever.retrieve("在FastGPT负责什么岗位", OWNER, strategy="hybrid"))
+
+    assert citations == []

@@ -142,6 +142,14 @@ class RebuildResponse(BaseModel):
     failed: int
 
 
+class DocumentDeleteResponse(BaseModel):
+    document_id: str
+    status: Literal["deleted", "purge_pending"]
+    tombstoned: bool = True
+    objects_remaining: bool
+    vectors_remaining: bool
+
+
 class DocumentRecord(BaseModel):
     owner_id: UUID | None = None
     document_id: str
@@ -195,6 +203,7 @@ class ChatMessage(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low", "none"] = "none"
     error: str | None = None
+    has_deleted_citations: bool = False
     created_at: datetime
 
 

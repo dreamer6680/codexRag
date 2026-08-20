@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 # Support both `python main.py` from this folder and `uvicorn app.main:app`
 # from the python-rag service root.
@@ -16,7 +16,8 @@ if __package__ in (None, ""):
     from app.graph import run_query
     from app.ingestion import IndexRebuilder, IngestionService
     from app.document_catalog import DocumentCatalog
-    from app.models import DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, RebuildResponse, ServiceHealth, UploadResponse
+    from app.document_deletion import DocumentDeletionService, DocumentNotFound, DocumentPurgePending
+    from app.models import DocumentDeleteResponse, DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, RebuildResponse, ServiceHealth, UploadResponse
     from app.object_storage import ObjectStorage
     from app.vector_store import VectorStore
     from app.ollama import OllamaClient
@@ -29,7 +30,8 @@ else:
     from .graph import run_query
     from .ingestion import IndexRebuilder, IngestionService
     from .document_catalog import DocumentCatalog
-    from .models import DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, RebuildResponse, ServiceHealth, UploadResponse
+    from .document_deletion import DocumentDeletionService, DocumentNotFound, DocumentPurgePending
+    from .models import DocumentDeleteResponse, DocumentDetailResponse, DocumentListResponse, DocumentRecord, IndexRequest, QueryRequest, QueryResponse, RebuildResponse, ServiceHealth, UploadResponse
     from .object_storage import ObjectStorage
     from .vector_store import VectorStore
     from .ollama import OllamaClient
@@ -43,6 +45,21 @@ app = FastAPI(title="Local RAG AI service", version="0.1.0")
 object_storage = ObjectStorage()
 document_catalog = DocumentCatalog()
 chat_catalog = ChatCatalog()
+document_deletion = DocumentDeletionService(
+    catalog=document_catalog,
+    objects=object_storage,
+)
+EVIDENCE_REFUSAL = "现有知识库中没有足以支持该问题的可靠证据，因此我不能确认答案。"
+
+
+def live_citations(owner_id: UUID, citations):
+    if not citations:
+        return []
+    live_ids = document_catalog.live_document_ids(
+        owner_id,
+        list(dict.fromkeys(item.document_id for item in citations)),
+    )
+    return [item for item in citations if item.document_id in live_ids]
 
 
 @app.get("/health", response_model=list[ServiceHealth])
@@ -208,6 +225,16 @@ async def rebuild_documents(user: AuthenticatedUser = Depends(require_user)):
     ).rebuild_all(user.id)
 
 
+@app.delete("/rag/documents/{document_id}", response_model=DocumentDeleteResponse)
+async def delete_document(document_id: str, user: AuthenticatedUser = Depends(require_user)):
+    try:
+        return document_deletion.delete(user.id, document_id)
+    except DocumentNotFound as exc:
+        raise HTTPException(404, "Document not found") from exc
+    except DocumentPurgePending as exc:
+        return JSONResponse(status_code=503, content=exc.result.model_dump())
+
+
 @app.get("/rag/documents/{document_id}", response_model=DocumentDetailResponse)
 async def document_detail(document_id: str, user: AuthenticatedUser = Depends(require_user)):
     record = document_catalog.get(document_id, user.id)
@@ -306,12 +333,18 @@ async def send_message(
                 result.answer,
             )
         else:
+            citations = live_citations(user.id, result.citations)
+            answer = result.answer
+            confidence = result.confidence
+            if result.status == "answered" and result.citations and not citations:
+                answer = EVIDENCE_REFUSAL
+                confidence = "none"
             assistant_message = chat_catalog.finish_turn(
                 pending_assistant.id,
                 user.id,
-                result.answer,
-                result.citations,
-                result.confidence,
+                answer,
+                citations,
+                confidence,
             )
         if context.messages_to_summarize:
             transcript = "\n".join(

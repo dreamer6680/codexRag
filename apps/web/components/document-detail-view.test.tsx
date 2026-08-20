@@ -53,7 +53,7 @@ describe("DocumentDetailView", () => {
   });
 
   function renderDetail() {
-    act(() => root.render(<DocumentDetailView detail={detail} onBack={() => undefined} />));
+    act(() => root.render(<DocumentDetailView detail={detail} onBack={() => undefined} onDelete={() => undefined} deleting={false} />));
   }
 
   function click(element: Element | null) {
@@ -104,5 +104,10 @@ describe("DocumentDetailView", () => {
 
     click(modeButton("渲染视图"));
     expect(container.querySelector('[aria-label="Markdown 解析内容"] h1')?.textContent).toBe("解析标题");
+  });
+
+  it("offers document deletion from the detail header", () => {
+    renderDetail();
+    expect(modeButton("删除资料")).not.toBeNull();
   });
 });

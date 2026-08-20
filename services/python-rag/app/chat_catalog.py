@@ -1,10 +1,10 @@
 """Owner-scoped persistence for conversations and messages."""
 
 import json
-from pathlib import Path
 from uuid import UUID, uuid4
 
 from .auth import AuthenticatedUser
+from .database import run_migrations
 from .models import (
     ChatMessage,
     Citation,
@@ -27,9 +27,7 @@ class ChatCatalog:
         return psycopg.connect(settings.postgres_dsn, row_factory=dict_row)
 
     def ensure_schema(self) -> None:
-        migration = Path(__file__).resolve().parents[1] / "migrations" / "001_user_chat.sql"
-        with self._connect() as conn:
-            conn.execute(migration.read_text(encoding="utf-8"))
+        run_migrations(self._connect)
 
     def upsert_user(self, user: AuthenticatedUser) -> None:
         self.ensure_schema()
@@ -73,7 +71,7 @@ class ChatCatalog:
             if not row:
                 return None
             message_rows = conn.execute(
-                """SELECT id, conversation_id, role, content, status, citations, confidence, error, created_at
+                """SELECT id, conversation_id, role, content, status, citations, confidence, error, has_deleted_citations, created_at
                 FROM chat_messages WHERE conversation_id = %s AND owner_id = %s ORDER BY created_at""",
                 (conversation_id, owner_id),
             ).fetchall()
@@ -149,13 +147,13 @@ class ChatCatalog:
             user_row = conn.execute(
                 """INSERT INTO chat_messages (id, conversation_id, owner_id, role, content, status)
                 VALUES (%s, %s, %s, 'user', %s, 'completed')
-                RETURNING id, conversation_id, role, content, status, citations, confidence, error, created_at""",
+                RETURNING id, conversation_id, role, content, status, citations, confidence, error, has_deleted_citations, created_at""",
                 (user_message_id, conversation_id, owner_id, question),
             ).fetchone()
             assistant_row = conn.execute(
                 """INSERT INTO chat_messages (id, conversation_id, owner_id, role, content, status)
                 VALUES (%s, %s, %s, 'assistant', '', 'pending')
-                RETURNING id, conversation_id, role, content, status, citations, confidence, error, created_at""",
+                RETURNING id, conversation_id, role, content, status, citations, confidence, error, has_deleted_citations, created_at""",
                 (assistant_message_id, conversation_id, owner_id),
             ).fetchone()
             conversation = conn.execute(
@@ -178,7 +176,7 @@ class ChatCatalog:
                 """UPDATE chat_messages SET content = %s, citations = %s::jsonb, confidence = %s,
                 status = 'completed', error = NULL
                 WHERE id = %s AND owner_id = %s
-                RETURNING id, conversation_id, role, content, status, citations, confidence, error, created_at""",
+                RETURNING id, conversation_id, role, content, status, citations, confidence, error, has_deleted_citations, created_at""",
                 (content, json.dumps([item.model_dump() for item in citations]), confidence, assistant_id, owner_id),
             ).fetchone()
         return ChatMessage(**row)
@@ -187,7 +185,7 @@ class ChatCatalog:
         with self._connect() as conn:
             row = conn.execute(
                 """UPDATE chat_messages SET status = 'failed', error = %s WHERE id = %s AND owner_id = %s
-                RETURNING id, conversation_id, role, content, status, citations, confidence, error, created_at""",
+                RETURNING id, conversation_id, role, content, status, citations, confidence, error, has_deleted_citations, created_at""",
                 (error, assistant_id, owner_id),
             ).fetchone()
         return ChatMessage(**row)

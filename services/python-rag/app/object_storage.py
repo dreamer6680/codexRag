@@ -1,5 +1,6 @@
 """MinIO-backed storage for original and parsed document artifacts."""
 from io import BytesIO
+from uuid import UUID
 
 from .settings import settings
 
@@ -46,3 +47,31 @@ class ObjectStorage:
         finally:
             response.close()
             response.release_conn()
+
+    @staticmethod
+    def _document_prefix(owner_id: UUID, document_id: str) -> str:
+        if not document_id or "/" in document_id or "\\" in document_id:
+            raise ValueError("invalid document id")
+        return f"users/{owner_id}/documents/{document_id}/"
+
+    def delete_document(self, owner_id: UUID, document_id: str) -> None:
+        from minio.deleteobjects import DeleteObject
+
+        prefix = self._document_prefix(owner_id, document_id)
+        objects = self.client.list_objects(self.bucket, prefix=prefix, recursive=True)
+        errors = list(
+            self.client.remove_objects(
+                self.bucket,
+                (DeleteObject(item.object_name) for item in objects),
+            )
+        )
+        if errors:
+            raise RuntimeError("MinIO document purge failed")
+
+    def document_exists(self, owner_id: UUID, document_id: str) -> bool:
+        objects = self.client.list_objects(
+            self.bucket,
+            prefix=self._document_prefix(owner_id, document_id),
+            recursive=True,
+        )
+        return next(iter(objects), None) is not None

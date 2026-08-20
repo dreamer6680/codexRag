@@ -7,10 +7,12 @@ import { Card } from "@/components/ui/card";
 import { ChatPanel } from "@/components/chat-panel";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { DocumentDetailView, type DocumentDetail } from "@/components/document-detail-view";
+import { DocumentDeleteDialog } from "@/components/document-delete-dialog";
 import { appendPendingTurn, completePendingTurn, failPendingTurn, type ChatMessage, type ConversationDetail, type ConversationListItem } from "@/lib/chat-state";
 
 type DocumentRecord = { document_id: string; document_name: string; version: number; content_type?: string | null; parser: string; status: "ready" | "index_failed"; page_count?: number | null; pdf_type?: string | null; chunk_count: number; created_at?: string | null; updated_at?: string | null };
 type RebuildResult = { succeeded: number; failed: number; results: Array<{ document_id: string; document_name: string; status: "ready" | "failed"; error?: string | null }> };
+type DeleteResult = { document_id: string; status: "deleted" | "purge_pending"; tombstoned: boolean; objects_remaining: boolean; vectors_remaining: boolean };
 type View = "chat" | "documents" | "detail";
 
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -39,6 +41,9 @@ export function Workspace() {
   const [rebuilding, setRebuilding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [detail, setDetail] = useState<DocumentDetail | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DocumentRecord | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [purgePending, setPurgePending] = useState<DocumentRecord | null>(null);
 
   useEffect(() => {
     void Promise.all([loadDocuments(), jsonRequest<{ conversations: ConversationListItem[] }>("/api/conversations")])
@@ -158,23 +163,65 @@ export function Workspace() {
     }
   }
 
+  async function deleteDocument(target: DocumentRecord) {
+    if (deletingId) return;
+    setDeletingId(target.document_id);
+    try {
+      const response = await fetch(`/api/documents/${encodeURIComponent(target.document_id)}`, { method: "DELETE", cache: "no-store" });
+      const payload = await response.json().catch(() => ({})) as Partial<DeleteResult> & { detail?: string };
+      if (response.status === 401) {
+        window.location.assign("/login");
+        return;
+      }
+      if (response.ok || payload.tombstoned) {
+        const next = removeDeletedDocument(documents, selectedDocumentIds, target.document_id);
+        setDocuments(next.documents);
+        setSelectedDocumentIds(next.selectedDocumentIds);
+        setDetail(current => current?.document_id === target.document_id ? null : current);
+        if (detail?.document_id === target.document_id) setView("documents");
+        setDeleteTarget(null);
+        if (payload.status === "purge_pending") {
+          setPurgePending(target);
+          setNotice("资料已停用且不会再被引用，但部分存储仍需清理。可重试清理。");
+        } else {
+          setPurgePending(null);
+          setNotice(`已彻底删除 ${target.document_name}`);
+        }
+        return;
+      }
+      throw new Error(payload.detail || "删除失败");
+    } catch (error) {
+      setNotice(error instanceof Error ? `删除失败：${error.message}` : "删除失败");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return <div className="min-h-screen bg-zinc-50 text-zinc-950">
     <ChatSidebar conversations={conversations} activeId={activeId} view={view} onNew={() => void createConversation()} onSelect={id => void openConversation(id)} onView={next => setView(next)} />
     <main className="lg:pl-72">
       <header className="flex min-h-16 items-center justify-between border-b bg-white px-5 sm:px-8"><span className="font-mono text-[11px] tracking-[.14em] text-zinc-500">PRIVATE / {view.toUpperCase()}</span><div className="flex items-center gap-3"><Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">个人空间</Badge><select value={activeId || ""} onChange={event => event.target.value && void openConversation(event.target.value)} className="max-w-40 rounded-md border bg-white px-2 py-1.5 text-xs lg:hidden"><option value="">选择历史聊天</option>{conversations.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div></header>
       <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
-        {notice && <div className="mb-5 flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"><span>{notice}</span><button onClick={() => setNotice(null)} aria-label="关闭">×</button></div>}
+        {notice && <div className="mb-5 flex items-center justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"><span>{notice}</span><div className="flex items-center gap-2">{purgePending && <Button variant="outline" disabled={deletingId === purgePending.document_id} onClick={() => void deleteDocument(purgePending)}>{deletingId === purgePending.document_id ? "清理中…" : "重试清理"}</Button>}<button onClick={() => setNotice(null)} aria-label="关闭">×</button></div></div>}
         {view === "chat" && <ChatPanel messages={messages} input={input} sending={sending} documents={documents} selectedDocumentIds={selectedDocumentIds} filterSaving={filterSaving} onInput={setInput} onSend={send} onFilter={ids => void saveFilter(ids)} />}
-        {view === "documents" && <DocumentsView documents={documents} uploading={uploading} rebuilding={rebuilding} onUpload={upload} onRebuild={() => void rebuildAll()} onOpen={openDocument} />}
-        {view === "detail" && <DocumentDetailView detail={detail} onBack={() => setView("documents")} />}
+        {view === "documents" && <DocumentsView documents={documents} uploading={uploading} rebuilding={rebuilding} deletingId={deletingId} onUpload={upload} onRebuild={() => void rebuildAll()} onOpen={openDocument} onDelete={setDeleteTarget} />}
+        {view === "detail" && <DocumentDetailView detail={detail} onBack={() => setView("documents")} onDelete={item => setDeleteTarget(item as DocumentRecord)} deleting={Boolean(detail && deletingId === detail.document_id)} />}
       </div>
     </main>
+    <DocumentDeleteDialog open={Boolean(deleteTarget)} documentName={deleteTarget?.document_name || ""} busy={Boolean(deleteTarget && deletingId === deleteTarget.document_id)} onCancel={() => setDeleteTarget(null)} onConfirm={() => deleteTarget && void deleteDocument(deleteTarget)} />
   </div>;
 }
 
-function DocumentsView({ documents, uploading, rebuilding, onUpload, onRebuild, onOpen }: { documents: DocumentRecord[]; uploading: boolean; rebuilding: boolean; onUpload: (file: File) => void; onRebuild: () => void; onOpen: (id: string) => void }) {
+function DocumentsView({ documents, uploading, rebuilding, deletingId, onUpload, onRebuild, onOpen, onDelete }: { documents: DocumentRecord[]; uploading: boolean; rebuilding: boolean; deletingId: string | null; onUpload: (file: File) => void; onRebuild: () => void; onOpen: (id: string) => void; onDelete: (document: DocumentRecord) => void }) {
   const input = useRef<HTMLInputElement>(null);
-  return <div><div className="flex items-end justify-between gap-4"><div><h1 className="text-3xl font-semibold tracking-tight">我的文档</h1><p className="mt-2 text-sm text-zinc-500">这里只有当前账户上传的资料。</p></div><div className="flex gap-2"><Button variant="outline" disabled={uploading || rebuilding || !documents.length} onClick={onRebuild}>{rebuilding ? "重建中…" : "重建全部索引"}</Button><Button variant="outline" disabled={uploading || rebuilding} onClick={() => input.current?.click()}>{uploading ? "解析中…" : "上传资料"}</Button></div><input ref={input} className="hidden" type="file" accept=".pdf,.txt,.md" onChange={event => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ""; }} /></div><Card className="mt-7 overflow-hidden"><div className="border-b px-5 py-4 text-sm font-medium">全部资料 <span className="text-zinc-500">{documents.length}</span></div>{documents.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-zinc-50 text-xs text-zinc-500"><tr><th className="px-5 py-3">名称</th><th className="px-5 py-3">状态</th><th className="px-5 py-3">分块</th><th className="px-5 py-3">解析器</th><th /></tr></thead><tbody>{documents.map(document => <tr key={document.document_id} className="border-t"><td className="px-5 py-4 font-medium">{document.document_name}</td><td className="px-5 py-4">{document.status === "ready" ? "已就绪" : "索引失败"}</td><td className="px-5 py-4 text-zinc-500">{document.chunk_count}</td><td className="px-5 py-4 text-zinc-500">{document.parser}</td><td className="px-5 py-4 text-right"><Button variant="ghost" onClick={() => onOpen(document.document_id)}>查看</Button></td></tr>)}</tbody></table></div> : <div className="grid min-h-72 place-items-center text-center"><div><p className="font-medium">还没有个人文档</p><p className="mt-2 text-sm text-zinc-500">上传 PDF、TXT 或 Markdown 后即可开始检索。</p></div></div>}</Card></div>;
+  return <div><div className="flex items-end justify-between gap-4"><div><h1 className="text-3xl font-semibold tracking-tight">我的文档</h1><p className="mt-2 text-sm text-zinc-500">这里只有当前账户上传的资料。</p></div><div className="flex gap-2"><Button variant="outline" disabled={uploading || rebuilding || !documents.length} onClick={onRebuild}>{rebuilding ? "重建中…" : "重建全部索引"}</Button><Button variant="outline" disabled={uploading || rebuilding} onClick={() => input.current?.click()}>{uploading ? "解析中…" : "上传资料"}</Button></div><input ref={input} className="hidden" type="file" accept=".pdf,.txt,.md" onChange={event => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ""; }} /></div><Card className="mt-7 overflow-hidden"><div className="border-b px-5 py-4 text-sm font-medium">全部资料 <span className="text-zinc-500">{documents.length}</span></div>{documents.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-zinc-50 text-xs text-zinc-500"><tr><th className="px-5 py-3">名称</th><th className="px-5 py-3">状态</th><th className="px-5 py-3">分块</th><th className="px-5 py-3">解析器</th><th /></tr></thead><tbody>{documents.map(document => <tr key={document.document_id} className="border-t"><td className="px-5 py-4 font-medium">{document.document_name}</td><td className="px-5 py-4">{document.status === "ready" ? "已就绪" : "索引失败"}</td><td className="px-5 py-4 text-zinc-500">{document.chunk_count}</td><td className="px-5 py-4 text-zinc-500">{document.parser}</td><td className="px-5 py-4 text-right"><Button variant="ghost" onClick={() => onOpen(document.document_id)}>查看</Button><Button variant="ghost" className="text-red-700 hover:bg-red-50" disabled={deletingId === document.document_id} onClick={() => onDelete(document)}>{deletingId === document.document_id ? "删除中…" : "删除"}</Button></td></tr>)}</tbody></table></div> : <div className="grid min-h-72 place-items-center text-center"><div><p className="font-medium">还没有个人文档</p><p className="mt-2 text-sm text-zinc-500">上传 PDF、TXT 或 Markdown 后即可开始检索。</p></div></div>}</Card></div>;
+}
+
+export function removeDeletedDocument<T extends { document_id: string }>(documents: T[], selectedDocumentIds: string[], documentId: string) {
+  return {
+    documents: documents.filter(item => item.document_id !== documentId),
+    selectedDocumentIds: selectedDocumentIds.filter(id => id !== documentId),
+  };
 }
 
 export function rebuildNotice(result: RebuildResult) {

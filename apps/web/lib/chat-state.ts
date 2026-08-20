@@ -17,6 +17,7 @@ export type ChatMessage = {
   citations: Citation[];
   confidence?: "high" | "medium" | "low" | "none";
   error?: string | null;
+  has_deleted_citations?: boolean;
   created_at: string;
 };
 

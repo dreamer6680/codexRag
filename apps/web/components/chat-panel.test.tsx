@@ -54,4 +54,24 @@ describe("ChatPanel evidence confidence", () => {
     expect(container.textContent).not.toContain("高相关证据");
     act(() => root.unmount());
   });
+
+  it("explains when a historical citation source was deleted", () => {
+    const root = createRoot(container);
+    act(() => root.render(
+      <ChatPanel
+        messages={[{ ...message, citations: [], has_deleted_citations: true }]}
+        input=""
+        sending={false}
+        documents={[]}
+        selectedDocumentIds={[]}
+        filterSaving={false}
+        onInput={() => undefined}
+        onSend={() => undefined}
+        onFilter={() => undefined}
+      />,
+    ));
+
+    expect(container.textContent).toContain("原资料已删除，相关引用已移除。");
+    act(() => root.unmount());
+  });
 });

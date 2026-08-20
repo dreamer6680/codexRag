@@ -1,8 +1,8 @@
 """Owner-scoped Postgres document catalog for parsed artifact metadata."""
-from pathlib import Path
 from uuid import UUID
 
 from .auth import AuthenticatedUser
+from .database import run_migrations
 from .models import DocumentRecord
 from .settings import settings
 
@@ -15,9 +15,7 @@ class DocumentCatalog:
         return psycopg.connect(settings.postgres_dsn, row_factory=dict_row)
 
     def ensure_schema(self) -> None:
-        migration = Path(__file__).resolve().parents[1] / "migrations" / "001_user_chat.sql"
-        with self._connect() as conn:
-            conn.execute(migration.read_text(encoding="utf-8"))
+        run_migrations(self._connect)
 
     def upsert_user(self, user: AuthenticatedUser) -> None:
         self.ensure_schema()
@@ -43,10 +41,13 @@ class DocumentCatalog:
                     owner_id, document_id, document_name, version, content_type, parser, status,
                     page_count, pdf_type, chunk_count, original_object_key, markdown_object_key
                 )
-                VALUES (
+                SELECT
                     %(owner_id)s, %(document_id)s, %(document_name)s, %(version)s, %(content_type)s, %(parser)s,
                     %(status)s, %(page_count)s, %(pdf_type)s, %(chunk_count)s,
                     %(original_object_key)s, %(markdown_object_key)s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM rag_document_tombstones
+                    WHERE document_id = %(document_id)s
                 )
                 ON CONFLICT (document_id) DO UPDATE SET
                     owner_id = EXCLUDED.owner_id,
@@ -84,6 +85,10 @@ class DocumentCatalog:
                     SELECT 1 FROM rag_documents
                     WHERE document_id = %(document_id)s AND owner_id <> %(owner_id)s
                 )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM rag_document_tombstones
+                    WHERE document_id = %(document_id)s
+                  )
                   AND %(version)s > COALESCE(
                     (SELECT version FROM rag_documents
                      WHERE document_id = %(document_id)s AND owner_id = %(owner_id)s), 0
@@ -131,10 +136,13 @@ class DocumentCatalog:
                 INSERT INTO rag_documents (
                     owner_id, document_id, document_name, version, content_type, parser, status,
                     page_count, pdf_type, chunk_count, original_object_key, markdown_object_key
-                ) VALUES (
+                ) SELECT
                     %(owner_id)s, %(document_id)s, %(document_name)s, %(version)s,
                     %(content_type)s, %(parser)s, 'ready', %(page_count)s, %(pdf_type)s,
                     %(chunk_count)s, %(original_object_key)s, %(markdown_object_key)s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM rag_document_tombstones
+                    WHERE document_id = %(document_id)s
                 )
                 ON CONFLICT (document_id) DO UPDATE SET
                     document_name = EXCLUDED.document_name,
@@ -194,8 +202,12 @@ class DocumentCatalog:
             rows = conn.execute(
                 f"""
                 SELECT document_id, version
-                FROM rag_documents
+                FROM rag_documents d
                 WHERE owner_id = %s AND status = 'ready'{selected}
+                  AND NOT EXISTS (
+                    SELECT 1 FROM rag_document_tombstones t
+                    WHERE t.document_id = d.document_id
+                  )
                 ORDER BY updated_at DESC
                 """,
                 params,
@@ -210,8 +222,12 @@ class DocumentCatalog:
                 SELECT owner_id, document_id, document_name, version, content_type, parser, status,
                        page_count, pdf_type, chunk_count, original_object_key, markdown_object_key,
                        created_at::text, updated_at::text
-                FROM rag_documents
+                FROM rag_documents d
                 WHERE owner_id = %s
+                  AND NOT EXISTS (
+                    SELECT 1 FROM rag_document_tombstones t
+                    WHERE t.document_id = d.document_id
+                  )
                 ORDER BY updated_at DESC
                 """,
                 (owner_id,),
@@ -226,9 +242,82 @@ class DocumentCatalog:
                 SELECT owner_id, document_id, document_name, version, content_type, parser, status,
                        page_count, pdf_type, chunk_count, original_object_key, markdown_object_key,
                        created_at::text, updated_at::text
-                FROM rag_documents
+                FROM rag_documents d
                 WHERE document_id = %s AND owner_id = %s
+                  AND NOT EXISTS (
+                    SELECT 1 FROM rag_document_tombstones t
+                    WHERE t.document_id = d.document_id
+                  )
                 """,
                 (document_id, owner_id),
             ).fetchone()
         return DocumentRecord(**row) if row else None
+
+    def begin_delete(self, owner_id: UUID, document_id: str) -> bool:
+        """Atomically revoke a document before external storage is purged."""
+        self.ensure_schema()
+        with self._connect() as conn:
+            live = conn.execute(
+                "SELECT owner_id FROM rag_documents WHERE document_id = %s FOR UPDATE",
+                (document_id,),
+            ).fetchone()
+            tombstone = conn.execute(
+                "SELECT owner_id FROM rag_document_tombstones WHERE document_id = %s",
+                (document_id,),
+            ).fetchone()
+            if live and live["owner_id"] != owner_id:
+                return False
+            if not live and (not tombstone or tombstone["owner_id"] != owner_id):
+                return False
+            conn.execute(
+                """INSERT INTO rag_document_tombstones (document_id, owner_id)
+                VALUES (%s, %s) ON CONFLICT (document_id) DO NOTHING""",
+                (document_id, owner_id),
+            )
+            conn.execute(
+                """UPDATE chat_messages AS message
+                SET citations = COALESCE((
+                    SELECT jsonb_agg(citation)
+                    FROM jsonb_array_elements(message.citations) AS citation
+                    WHERE citation->>'document_id' <> %s
+                ), '[]'::jsonb),
+                has_deleted_citations = true
+                WHERE message.owner_id = %s
+                  AND EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(message.citations) AS citation
+                    WHERE citation->>'document_id' = %s
+                  )""",
+                (document_id, owner_id, document_id),
+            )
+            conn.execute(
+                "DELETE FROM conversation_documents WHERE owner_id = %s AND document_id = %s",
+                (owner_id, document_id),
+            )
+            conn.execute(
+                "DELETE FROM rag_document_index_reservations WHERE owner_id = %s AND document_id = %s",
+                (owner_id, document_id),
+            )
+            conn.execute(
+                "DELETE FROM rag_documents WHERE owner_id = %s AND document_id = %s",
+                (owner_id, document_id),
+            )
+        return True
+
+    def live_document_ids(self, owner_id: UUID, document_ids: list[str]) -> set[str]:
+        """Return the subset still ready and not tombstoned."""
+        if not document_ids:
+            return set()
+        self.ensure_schema()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT d.document_id
+                FROM rag_documents d
+                WHERE d.owner_id = %s AND d.status = 'ready'
+                  AND d.document_id = ANY(%s)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM rag_document_tombstones t
+                    WHERE t.document_id = d.document_id
+                  )""",
+                (owner_id, document_ids),
+            ).fetchall()
+        return {row["document_id"] for row in rows}

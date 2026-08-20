@@ -48,7 +48,7 @@ export type DocumentDetail = {
 
 type MarkdownMode = "rendered" | "raw" | "chunk";
 
-export function DocumentDetailView({ detail, onBack }: { detail: DocumentDetail | null; onBack: () => void }) {
+export function DocumentDetailView({ detail, onBack, onDelete, deleting }: { detail: DocumentDetail | null; onBack: () => void; onDelete: (detail: DocumentDetail) => void; deleting: boolean }) {
   const [selectedPosition, setSelectedPosition] = useState(0);
   const [mode, setMode] = useState<MarkdownMode>("rendered");
 
@@ -82,9 +82,9 @@ export function DocumentDetailView({ detail, onBack }: { detail: DocumentDetail 
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">{detail.document_name}</h1>
           <p className="mt-2 text-sm text-zinc-500">v{detail.version} · {detail.parser}</p>
         </div>
-        <Badge className={`self-start ${detail.status === "ready" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+        <div className="flex items-center gap-2"><Badge className={`${detail.status === "ready" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
           {detail.status === "ready" ? "已就绪" : "索引失败"}
-        </Badge>
+        </Badge><Button variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" disabled={deleting} onClick={() => onDelete(detail)}>{deleting ? "删除中…" : "删除资料"}</Button></div>
       </div>
 
       <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

@@ -30,6 +30,7 @@ export function ChatPanel({ messages, input, sending, documents, selectedDocumen
         {messages.map(message => <article key={message.id} className={message.role === "user" ? "ml-auto max-w-2xl rounded-xl bg-zinc-100 p-4" : "max-w-3xl"}>
           <p className="mb-2 text-xs font-medium text-zinc-500">{message.role === "user" ? "你" : "知见助手"}</p>
           {message.status === "pending" ? <p className="text-sm text-zinc-500">正在检索个人资料并核验证据…</p> : message.status === "failed" ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{message.error || "回答失败，请重新发送问题"}</div> : <p className="whitespace-pre-wrap text-sm leading-7">{message.content}</p>}
+          {message.has_deleted_citations && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">原资料已删除，相关引用已移除。</p>}
           {message.role === "assistant" && message.status === "completed" && <EvidenceNotice message={message} />}
           {message.citations?.length > 0 && <div className="mt-4 space-y-2 border-l-2 border-blue-500 pl-3">{message.citations.map((citation, index) => <details key={`${citation.document_id}-${index}`} className="text-xs"><summary className="cursor-pointer font-medium text-blue-700">[{index + 1}] {citation.document_name}{citation.page ? ` · 第 ${citation.page} 页` : ""}</summary><p className="mt-2 leading-5 text-zinc-600">{citation.excerpt}</p></details>)}</div>}
         </article>)}

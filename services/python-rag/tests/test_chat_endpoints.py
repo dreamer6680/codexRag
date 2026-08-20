@@ -84,6 +84,15 @@ class FakeChatCatalog:
         )
 
 
+class LiveCatalog:
+    def __init__(self, live_ids):
+        self.live_ids = set(live_ids)
+
+    def live_document_ids(self, owner_id, document_ids):
+        assert owner_id == OWNER
+        return self.live_ids.intersection(document_ids)
+
+
 def test_send_message_persists_answer_and_citation_snapshot(monkeypatch):
     catalog = FakeChatCatalog()
     citation = Citation(
@@ -98,6 +107,7 @@ def test_send_message_persists_answer_and_citation_snapshot(monkeypatch):
         return QueryResponse(status="answered", answer="需要提交检查表。[1]", citations=[citation], confidence="high")
 
     monkeypatch.setattr("app.main.chat_catalog", catalog)
+    monkeypatch.setattr("app.main.document_catalog", LiveCatalog(["doc-1"]))
     monkeypatch.setattr("app.main.run_query", fake_run_query)
     app.dependency_overrides[require_user] = lambda: USER
     try:
@@ -113,6 +123,37 @@ def test_send_message_persists_answer_and_citation_snapshot(monkeypatch):
     assert response.json()["assistant_message"]["confidence"] == "high"
     assert catalog.saved_citations == [citation]
     assert catalog.saved_confidence == "high"
+
+
+def test_send_message_revokes_citation_deleted_before_persistence(monkeypatch):
+    catalog = FakeChatCatalog()
+    citation = Citation(
+        document_id="doc-1",
+        document_name="发布规范.pdf",
+        version=1,
+        excerpt="发布前提交检查表",
+        confidence=0.9,
+    )
+
+    async def fake_run_query(*_args, **_kwargs):
+        return QueryResponse(status="answered", answer="需要提交检查表。[1]", citations=[citation], confidence="high")
+
+    monkeypatch.setattr("app.main.chat_catalog", catalog)
+    monkeypatch.setattr("app.main.document_catalog", LiveCatalog([]))
+    monkeypatch.setattr("app.main.run_query", fake_run_query)
+    app.dependency_overrides[require_user] = lambda: USER
+    try:
+        response = TestClient(app).post(
+            f"/rag/conversations/{CONVERSATION_ID}/messages",
+            json={"question": "发布需要哪些材料？"},
+        )
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+
+    assert response.status_code == 200
+    assert catalog.saved_citations == []
+    assert catalog.saved_confidence == "none"
+    assert response.json()["assistant_message"]["content"] == "现有知识库中没有足以支持该问题的可靠证据，因此我不能确认答案。"
 
 
 def test_catalog_failure_marks_conversation_turn_unavailable(monkeypatch):

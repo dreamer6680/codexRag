@@ -138,7 +138,14 @@ class MultiStrategyRetriever:
                     }
                 )
             )
-        return output
+        try:
+            live_ids = self.catalog.live_document_ids(
+                owner_id,
+                list(dict.fromkeys(item.document_id for item in output)),
+            )
+        except Exception as exc:
+            raise CatalogUnavailableError("document catalog unavailable") from exc
+        return [item for item in output if item.document_id in live_ids]
 
     @staticmethod
     def _citation_from_lexical(hit: LexicalHit) -> Citation:
