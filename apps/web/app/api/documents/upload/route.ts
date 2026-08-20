@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { processPdf } from "@firecrawl/pdf-inspector";
 
 export const runtime = "nodejs";
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   const upstream = process.env.RAG_API_URL ?? "http://localhost:8001";
@@ -10,6 +11,12 @@ export async function POST(request: NextRequest) {
     const file = form.get("file");
     if (!(file instanceof File)) {
       return NextResponse.json({ detail: "请选择文件" }, { status: 400 });
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { detail: "鏂囦欢涓嶈兘瓒呰繃 50 MB" },
+        { status: 413 },
+      );
     }
     let inspection: {
       pdf_type: string;
