@@ -39,11 +39,11 @@ class DocumentCatalog:
                 """
                 INSERT INTO rag_documents (
                     owner_id, document_id, document_name, version, content_type, parser, status,
-                    page_count, pdf_type, chunk_count, original_object_key, markdown_object_key
+                    page_count, chunk_count, original_object_key, markdown_object_key
                 )
                 SELECT
                     %(owner_id)s, %(document_id)s, %(document_name)s, %(version)s, %(content_type)s, %(parser)s,
-                    %(status)s, %(page_count)s, %(pdf_type)s, %(chunk_count)s,
+                    %(status)s, %(page_count)s, %(chunk_count)s,
                     %(original_object_key)s, %(markdown_object_key)s
                 WHERE NOT EXISTS (
                     SELECT 1 FROM rag_document_tombstones
@@ -57,7 +57,6 @@ class DocumentCatalog:
                     parser = EXCLUDED.parser,
                     status = EXCLUDED.status,
                     page_count = EXCLUDED.page_count,
-                    pdf_type = EXCLUDED.pdf_type,
                     chunk_count = EXCLUDED.chunk_count,
                     original_object_key = EXCLUDED.original_object_key,
                     markdown_object_key = EXCLUDED.markdown_object_key,
@@ -135,10 +134,10 @@ class DocumentCatalog:
                 """
                 INSERT INTO rag_documents (
                     owner_id, document_id, document_name, version, content_type, parser, status,
-                    page_count, pdf_type, chunk_count, original_object_key, markdown_object_key
+                    page_count, chunk_count, original_object_key, markdown_object_key
                 ) SELECT
                     %(owner_id)s, %(document_id)s, %(document_name)s, %(version)s,
-                    %(content_type)s, %(parser)s, 'ready', %(page_count)s, %(pdf_type)s,
+                    %(content_type)s, %(parser)s, 'ready', %(page_count)s,
                     %(chunk_count)s, %(original_object_key)s, %(markdown_object_key)s
                 WHERE NOT EXISTS (
                     SELECT 1 FROM rag_document_tombstones
@@ -151,7 +150,6 @@ class DocumentCatalog:
                     parser = EXCLUDED.parser,
                     status = 'ready',
                     page_count = EXCLUDED.page_count,
-                    pdf_type = EXCLUDED.pdf_type,
                     chunk_count = EXCLUDED.chunk_count,
                     original_object_key = EXCLUDED.original_object_key,
                     markdown_object_key = EXCLUDED.markdown_object_key,
@@ -220,7 +218,7 @@ class DocumentCatalog:
             rows = conn.execute(
                 """
                 SELECT owner_id, document_id, document_name, version, content_type, parser, status,
-                       page_count, pdf_type, chunk_count, original_object_key, markdown_object_key,
+                       page_count, chunk_count, original_object_key, markdown_object_key,
                        created_at::text, updated_at::text
                 FROM rag_documents d
                 WHERE owner_id = %s
@@ -240,7 +238,7 @@ class DocumentCatalog:
             row = conn.execute(
                 """
                 SELECT owner_id, document_id, document_name, version, content_type, parser, status,
-                       page_count, pdf_type, chunk_count, original_object_key, markdown_object_key,
+                       page_count, chunk_count, original_object_key, markdown_object_key,
                        created_at::text, updated_at::text
                 FROM rag_documents d
                 WHERE document_id = %s AND owner_id = %s

@@ -139,49 +139,94 @@ async def index(payload: IndexRequest, user: AuthenticatedUser = Depends(require
 @app.post("/rag/upload", response_model=UploadResponse)
 async def upload(
     file: UploadFile = File(...),
-    page_count: int | None = Form(default=None),
-    pdf_type: str | None = Form(default=None),
     user: AuthenticatedUser = Depends(require_user),
 ):
     """Parse, chunk, embed and index one user-uploaded document."""
+
+    # 1. 检查文件
     filename = Path(file.filename or "").name
     suffix = Path(filename).suffix.lower()
-    if not filename or suffix not in {".pdf", ".txt", ".md"}:
-        raise HTTPException(415, "当前仅支持 PDF、TXT 和 Markdown 文件")
 
+    if not filename or suffix not in {".pdf", ".txt", ".md"}:
+        raise HTTPException(
+            415,
+            "当前仅支持 PDF、TXT 和 Markdown 文件",
+        )
+
+    # 2. 读取文件
     raw = await file.read()
+
     if not raw:
         raise HTTPException(400, "上传文件为空")
-    if len(raw) > settings.max_upload_mb * 1024 * 1024:
-        raise HTTPException(413, f"文件不能超过 {settings.max_upload_mb} MB")
 
+    if len(raw) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(
+            413,
+            f"文件不能超过 {settings.max_upload_mb} MB",
+        )
+
+    # 3. 创建文档版本
     document_id = str(uuid4())
     version = 1
+
     document_catalog.upsert_user(user)
-    original_key = f"users/{user.id}/documents/{document_id}/v{version}/original/{filename}"
-    markdown_key = f"users/{user.id}/documents/{document_id}/v{version}/parsed.md"
+
+    # MinIO 中的对象路径
+    original_key = (
+        f"users/{user.id}/documents/"
+        f"{document_id}/v{version}/original/{filename}"
+    )
+
+    markdown_key = (
+        f"users/{user.id}/documents/"
+        f"{document_id}/v{version}/parsed.md"
+    )
+
+    # 4. 解析文档
     try:
         ingestion = await IngestionService().parse(
             document_id,
             filename,
             raw,
             file.content_type or "application/octet-stream",
-            pdf_type=pdf_type,
             version=version,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except (RuntimeError, httpx.HTTPError) as exc:
         raise HTTPException(503, str(exc)) from exc
+
+    # 5. 获取解析结果
     content = ingestion.markdown
     parser_used = ingestion.parser
-    request = ingestion.request.model_copy(update={"owner_id": user.id})
+
+    request = ingestion.request.model_copy(
+        update={"owner_id": user.id}
+    )
+
+    # 6. 保存原文件 + Markdown，并建立向量索引
     try:
-        object_storage.put_bytes(original_key, raw, file.content_type or "application/octet-stream")
-        object_storage.put_bytes(markdown_key, content.encode("utf-8"), "text/markdown; charset=utf-8")
+        object_storage.put_bytes(
+            original_key,
+            raw,
+            file.content_type or "application/octet-stream",
+        )
+
+        object_storage.put_bytes(
+            markdown_key,
+            content.encode("utf-8"),
+            "text/markdown; charset=utf-8",
+        )
+
         count = await VectorStore().index(request)
+
     except Exception as exc:
-        raise HTTPException(503, f"向量索引失败，请检查 Ollama 和 Qdrant：{exc}") from exc
+        raise HTTPException(
+            503,
+            f"向量索引失败，请检查 Ollama 和 Qdrant：{exc}",
+        ) from exc
+
+    # 7. 保存文档元数据
     document_catalog.upsert(
         DocumentRecord(
             owner_id=user.id,
@@ -190,14 +235,15 @@ async def upload(
             version=version,
             content_type=file.content_type or "application/octet-stream",
             parser=parser_used,
-            page_count=page_count,
-            pdf_type=pdf_type,
+            page_count=None,
             chunk_count=count,
             original_object_key=original_key,
             markdown_object_key=markdown_key,
         ),
         user.id,
     )
+
+    # 8. 返回结果
     return UploadResponse(
         document_id=document_id,
         document_name=filename,

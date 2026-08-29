@@ -159,7 +159,6 @@ class DocumentRecord(BaseModel):
     parser: str
     status: Literal["indexing", "ready", "index_failed"] = "ready"
     page_count: int | None = None
-    pdf_type: str | None = None
     chunk_count: int
     original_object_key: str
     markdown_object_key: str
