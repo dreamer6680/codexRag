@@ -7,6 +7,8 @@ from .document_structure import BoundingBox, ChunkEntities
 
 
 class Citation(BaseModel):
+    chunk_id: str
+    parent_chunk_id: str | None = None
     document_id: str
     document_name: str
     version: int
@@ -43,18 +45,33 @@ class QueryResponse(BaseModel):
 
 
 class ChunkInput(BaseModel):
-    text: str = Field(min_length=1)
-    page: int | None = None
-    section: str | None = None
-    confidence: float = Field(default=1, ge=0, le=1)
-    char_start: int | None = Field(default=None, ge=0)
-    char_end: int | None = Field(default=None, ge=0)
+    # identity
+    chunk_id: str
+    parent_chunk_id: str | None = None
+    level: int = 1
+
+    # content
+    text: str
+    embedding_text: str | None = None
+
+    # structure
     chunk_type: str = "paragraph"
+    section: str | None = None
     section_path: list[str] = Field(default_factory=list)
     parent_context: str | None = None
+
+    # retrieval
     keywords: list[str] = Field(default_factory=list)
     entities: ChunkEntities = Field(default_factory=ChunkEntities)
+
+    # source location
+    page: int | None = None
     bbox: BoundingBox | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+
+    # quality
+    confidence: float = Field(default=1, ge=0, le=1)
     parser_confidence: float = Field(default=1, ge=0, le=1)
 
     @field_validator("text")
@@ -74,6 +91,9 @@ class IndexRequest(BaseModel):
 
 
 class DocumentChunkDetail(BaseModel):
+    chunk_id: str
+    parent_chunk_id: str | None = None
+    level: int = 1
     index: int
     page: int | None = None
     section: str | None = None
@@ -94,6 +114,8 @@ class StoredChunk(BaseModel):
     """Qdrant chunk payload normalized for non-vector retrieval."""
 
     document_id: str
+    parent_chunk_id: str | None = None
+    level: int = 1
     document_name: str
     version: int
     chunk_index: int

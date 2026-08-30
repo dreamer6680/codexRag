@@ -14,7 +14,7 @@ class DocumentProcessor:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.text_parser = MarkdownStructureParser()
-        self.chunker = StructureAwareChunker(max_chars=chunk_size)
+        self.chunker = StructureAwareChunker(max_chars=chunk_size,overlap=chunk_overlap)
 
     def from_text(
         self, document_id: str, name: str, content: str, version: int = 1
