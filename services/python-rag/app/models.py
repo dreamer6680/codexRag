@@ -114,6 +114,7 @@ class StoredChunk(BaseModel):
     """Qdrant chunk payload normalized for non-vector retrieval."""
 
     document_id: str
+    chunk_id: str
     parent_chunk_id: str | None = None
     level: int = 1
     document_name: str

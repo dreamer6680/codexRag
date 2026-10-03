@@ -7,17 +7,27 @@ import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 
 export type DocumentChunk = {
+  chunk_id: string;
+  parent_chunk_id?: string | null;
+
+  level: number;
   index: number;
+
   text: string;
+
   page?: number | null;
   section?: string | null;
+
   char_start?: number | null;
   char_end?: number | null;
+
   confidence?: number | null;
   chunk_type?: string | null;
+
   section_path?: string[];
   parent_context?: string | null;
   keywords?: string[];
+
   entities?: {
     companies?: string[];
     roles?: string[];
@@ -25,7 +35,14 @@ export type DocumentChunk = {
     dates?: string[];
     people?: string[];
   };
-  bbox?: { x0: number; y0: number; x1: number; y1: number } | null;
+
+  bbox?: {
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+  } | null;
+
   parser_confidence?: number | null;
 };
 
@@ -100,14 +117,15 @@ export function DocumentDetailView({ detail, onBack, onDelete, deleting }: { det
             <div className="flex gap-2 overflow-x-auto pb-1" aria-label="文档 Chunk 导航">
               {detail.chunks.map((chunk, position) => (
                 <button
-                  key={`${chunk.index}-${position}`}
+                  key={`${chunk.chunk_id}-${position}`}
                   type="button"
                   aria-label={`查看 Chunk ${chunk.index + 1}`}
                   aria-pressed={selectedPosition === position}
                   onClick={() => setSelectedPosition(position)}
                   className={`min-w-28 rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${selectedPosition === position ? "border-blue-300 bg-blue-50 shadow-sm" : "bg-white hover:bg-zinc-50"}`}
                 >
-                  <span className="block font-mono text-[10px] text-zinc-500">CHUNK {String(chunk.index + 1).padStart(2, "0")}</span>
+                  <span className="block font-mono text-[10px] text-zinc-500">CHUNK {String(chunk.chunk_id).padStart(2, "0")}</span>
+                  <span className="mt-1 block truncate text-xs text-zinc-700" >CHUNK {String(chunk.index +1).padStart(2, "0")}</span>
                   <span className="mt-1 block truncate text-xs text-zinc-700">{chunkLocation(chunk)}</span>
                 </button>
               ))}
